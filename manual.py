@@ -25,6 +25,23 @@ def internet_check():
         print("No internet access detected. Press 'Enter' to retry or 'Ctrl + C' to exit")
         input()
 
+def is_gamesjson_valid():
+    json_file = "games.json"
+
+    # Does file exist
+    if not os.path.exists(json_file):
+        return False
+    try:
+        with open(json_file, 'r') as f:
+            games = json.load(f)
+    except json.JSONDecodeError:
+    # File is completely empty
+        return False
+    # File is just '{}'
+    if not games:
+        return False
+    return True
+
 def upload_save():
     pass
 
@@ -36,7 +53,7 @@ def check_save_status():
 
 def add_game_entry(system):
     json_file = "games.json"
-
+    
     # Loading file if exists else create new
     if os.path.exists(json_file):
         try:
@@ -93,29 +110,47 @@ def add_game_entry(system):
 
 
 def remove_game_entry():
-    pass
+    if not is_gamesjson_valid():
+        print('You have no game entries\n')
+        return
 
+    json_file = "games.json"
+    with open(json_file, 'r') as f:
+        games = json.load(f)
+
+    list_games(system)
+    while True:
+        entry_num_to_del = input('Entry number to delete: ')
+        try: 
+            entry_num_to_del = int(entry_num_to_del)
+            if not (1 <= entry_num_to_del <= len(games)):
+                print(f'Input must be between 1 and {len(games)}\n')
+            else:
+                break
+        except ValueError:
+            print('Input must be a valid number\n')
+
+    games_keys = list(games)
+    entry_name_to_del = games_keys[entry_num_to_del - 1]
+    del games[entry_name_to_del]
+
+    with open(json_file, 'w') as f:
+        json.dump(games, f, indent=4)
+
+    print(f'\n{entry_name_to_del} has been removed from your games\n')
+    
 def edit_game_entry():
     pass
 
 def list_games(system):
+    if not is_gamesjson_valid():
+        print('You have no game entries\n')
+        return
+
     json_file = "games.json"
 
-    # Handling json file edge cases
-    if not os.path.exists(json_file):
-        print("You have no game entries")
-        return
-    
-    try:
-        with open(json_file, 'r') as f:
-            games = json.load(f)
-    except json.JSONDecodeError:
-        print("You have no game entries")
-        return
-    
-    if not games:
-        print('YOu have no game entries')
-        return
+    with open(json_file, 'r') as f:
+        games = json.load(f)
     
     count = 1
     for game, paths in games.items():
@@ -123,6 +158,7 @@ def list_games(system):
         for system, path in paths.items():
             if path.strip():
                 print(f"\033[4m{system.capitalize()} Path:\033[0m {path}")
+        count += 1
         print()
 
 # Checking OS
@@ -146,7 +182,7 @@ while True:
         case "4":
             add_game_entry(system)
         case "5":
-            pass
+            remove_game_entry()
         case "6":
             pass
         case "7":
