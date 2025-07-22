@@ -55,7 +55,7 @@ def add_game_entry(system):
             print("Game name cannot be empty. Please try again\n")
 
     if game_name in games:
-        print(f"{game_name} already exists in your list")
+        print(f"{game_name} already exists in your list\n")
         return
     
     if system == "windows":
@@ -89,7 +89,7 @@ def add_game_entry(system):
     with open(json_file, 'w') as f:
         json.dump(games, f, indent=4)
 
-    print(f"\n{game_name} has been added successfully\n")
+    print(f"\n{game_name} has been added successfully!\n")
 
 
 def remove_game_entry():
@@ -98,8 +98,32 @@ def remove_game_entry():
 def edit_game_entry():
     pass
 
-def list_games():
-    pass
+def list_games(system):
+    json_file = "games.json"
+
+    # Handling json file edge cases
+    if not os.path.exists(json_file):
+        print("You have no game entries")
+        return
+    
+    try:
+        with open(json_file, 'r') as f:
+            games = json.load(f)
+    except json.JSONDecodeError:
+        print("You have no game entries")
+        return
+    
+    if not games:
+        print('YOu have no game entries')
+        return
+    
+    count = 1
+    for game, paths in games.items():
+        print(f"\033[1m{count}: {game}\033[0m")
+        for system, path in paths.items():
+            if path.strip():
+                print(f"\033[4m{system.capitalize()} Path:\033[0m {path}")
+        print()
 
 # Checking OS
 system = get_platform()
@@ -111,7 +135,7 @@ internet_check()
 
 # Menu
 while True:
-    function_choice = input("Select your function:\n1: Upload Save(s)\n2: Download Save(s)\n3: Check Save(s) Status\n4: Add game entry\n5: Remove game entry\n6: Edit game entry\n7: List games\n")
+    function_choice = input("Select your function or press 'Ctrl+C' to exit:\n1: Upload Save(s)\n2: Download Save(s)\n3: Check Save(s) Status\n4: Add game entry\n5: Remove game entry\n6: Edit game entry\n7: List games\n")
     match function_choice:
         case "1":
             pass
@@ -126,7 +150,7 @@ while True:
         case "6":
             pass
         case "7":
-            pass
+            list_games(system)
         case _:
             print("Invalid option. Please try again")
 
