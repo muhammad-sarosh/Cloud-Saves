@@ -2,6 +2,7 @@ import platform
 import socket
 import json
 import os
+import supabase
 
 # Checks OS Type
 def get_platform():
@@ -26,8 +27,6 @@ def internet_check():
         input()
 
 def is_gamesjson_valid():
-    json_file = "games.json"
-
     # Does file exist
     if not os.path.exists(json_file):
         return False
@@ -43,7 +42,6 @@ def is_gamesjson_valid():
     return True
 
 def write_new_path(games, entry_name_to_edit, json_file, system):
-
     if get_platform() != system:
         print(f'WARNING: Since you are currently not on {system} the program will not check to see if the entered {system} path is valid')
         system_path = input(f"\nEnter the new {system} save path for your game: ").strip()
@@ -58,17 +56,16 @@ def write_new_path(games, entry_name_to_edit, json_file, system):
     
     print('\nSave path successfully changed!')
 
-def take_entry_input(keyword):
+def take_entry_input(keyword, print_paths=True):
     if not is_gamesjson_valid():
         print('You have no game entries\n')
         return
 
-    json_file = "games.json"
     with open(json_file, 'r') as f:
         games = json.load(f)
 
     # Taking input
-    list_games()
+    list_games(print_paths)
     while True:
         entry_num_to_modify = input(f'Entry number to {keyword}: ').strip()
         try: 
@@ -99,7 +96,6 @@ def check_save_status():
 
 def add_game_entry():
     system = get_platform()
-    json_file = "games.json"
     
     # Loading file if exists else create new
     if os.path.exists(json_file):
@@ -157,7 +153,7 @@ def add_game_entry():
 
 
 def remove_game_entry():
-    games,entry_name_to_del,json_file = take_entry_input('delete')
+    games,entry_name_to_del,json_file = take_entry_input('delete', False)
     del games[entry_name_to_del]
 
     with open(json_file, 'w') as f:
@@ -205,13 +201,11 @@ def edit_game_entry():
                 print("Invalid option. Please try again\n")
 
 
-def list_games():
+def list_games(print_paths=True):
     system = get_platform()
     if not is_gamesjson_valid():
         print('You have no game entries\n')
         return
-
-    json_file = "games.json"
 
     with open(json_file, 'r') as f:
         games = json.load(f)
@@ -219,15 +213,21 @@ def list_games():
     count = 1
     for game, paths in games.items():
         print(f"\033[1m{count}: {game}\033[0m")
-        for system, path in paths.items():
-            if path.strip():
-                print(f"\033[4m{system.capitalize()} Path:\033[0m {path}")
+        if print_paths:
+            for system, path in paths.items():
+                if path.strip():
+                    print(f"\033[4m{system.capitalize()} Path:\033[0m {path}")
         count += 1
-        print()
+        if print_paths:
+            print()
+
+
+
+json_file = "games.json"
 
 # Checking OS
-system = get_platform()
-if system == "unsupported":
+operating_sys = get_platform()
+if operating_sys == "unsupported":
     print("This program has detected your OS type as Unsupported. Press 'Enter' if you wish to continue")
     input()
 
@@ -253,4 +253,5 @@ while True:
             list_games()
         case _:
             print("Invalid option. Please try again")
+            
 
