@@ -2,26 +2,64 @@ import platform
 import socket
 import json
 import os
-import sys
 import supabase
 from pathlib import Path
+import copy
+
+# If choice is 0 program inputs url. If choice is 1 program inputs api_key
+def get_supabase_info(choice):
+    if choice == 0:
+        input_message = 'Enter your supabase data api url: '
+    elif choice == 1:
+        input_message = 'Enter your supabase service_role api key: '
+    data = ''
+    while data == '':
+        data = input(input_message).strip()
+        if data == '':
+            print('Input cannot be empty')
+    return data
 
 def load_cfg():
-    if not is_json_valid("config.json"):
-        with open("config.json", "w") as f:
-            json.dump(default_config, f, indent=4)
-            print('Your config.json file was either missing (if this is your first time running the program then this is normal), empty, or corrupted. It has been regenerated with the defaults. Please edit it and enter your supabase data api url and service_role api key and rerun the program.')
-            sys.exit()
+    config_file = 'config.json'
+    # If config missing empty or corrupted
+    if not is_json_valid(config_file):
+        with open(config_file, "w") as f:
+            print(f"No valid {config_file} found. A new one will be created.\n(If this is your first time running the program, this is normal)")
+            url = get_supabase_info(0)
+            api_key = get_supabase_info(1)
+            gamesjson_file = default_config['gamesjson_file']
+            temp_config = copy.deepcopy(default_config)
+            temp_config['supabase']['url'] = url
+            temp_config['supabase']['api_key'] = api_key
+            json.dump(temp_config, f, indent=4)
+            print('\nConfig file successfully regenerated!\n')
+    else:
+        # Otherwise load config
+        with open(config_file, 'r') as f:
+            config = json.load(f)
+            url = config['supabase']['url']
+            api_key = config['supabase']['api_key']
+            gamesjson_file = config['gamesjson_file']
 
-    with open("config.json", 'r') as f:
-        config = json.load(f)
-        url = config['supabase']['url']
-        api_key = config['supabase']['api_key']
-        gamesjson_file = config['gamesjson_file']
-        if url == '' or api_key == '':
-            print('The url and/or api_key values in your config.json file are empty. Please fill them with your supabase data api url and service_role api key and rerun the program.')
-            sys.exit()
-        return gamesjson_file, url, api_key
+            changed = False
+            if url == '':
+                print(f'The url value in your {config_file} is empty')
+                url = get_supabase_info(0)
+                config['supabase']['url'] = url
+                changed = True
+            if api_key == '':
+                print(f'The api key value in your {config_file} is empty')
+                api_key = get_supabase_info(1)
+                config['supabase']['api_key'] = api_key      
+                changed = True
+            if gamesjson_file == '':
+                config['gamesjson_file'] = 'games.json'
+                changed = True
+            
+            if changed:
+                with open(config_file, "w") as f:
+                    json.dump(config, f, indent=4)
+    return gamesjson_file, url, api_key
 
 
 # Checks OS Type
@@ -282,9 +320,6 @@ if operating_sys == "unsupported":
     input()
 
 internet_check()
-
-local_path = "S:\\Miscellaneous\\Random\\test"
-local_path = Path(local_path)
 
 # Menu
 while True:
