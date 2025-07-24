@@ -6,41 +6,39 @@ import supabase
 from pathlib import Path
 import copy
 
-# If choice is 0 program inputs url. If choice is 1 program inputs api_key
-def get_supabase_info(choice):
-    if choice == 0:
-        input_message = 'Enter your supabase data api url: '
-    elif choice == 1:
-        input_message = 'Enter your supabase service_role api key: '
-    data = ''
-    while data == '':
-        data = input(input_message).strip()
-        if data == '':
-            print('Input cannot be empty')
-    return data
+def regenerate_cfg():
+    with open(config_file, "w") as f:
+        print(f"No valid {config_file} found. A new one will be created.\n(If this is your first time running the program, this is normal)")
+        url = get_supabase_info(0)
+        api_key = get_supabase_info(1)
+        games_file = default_config['games_file']
+        temp_config = copy.deepcopy(default_config)
+        temp_config['supabase']['url'] = url
+        temp_config['supabase']['api_key'] = api_key
+        json.dump(temp_config, f, indent=4)
+        print('\nConfig file successfully regenerated!\n')
+        return url, api_key, games_file
 
 def load_cfg():
-    config_file = 'config.json'
-    # If config missing empty or corrupted
-    if not is_json_valid(config_file):
-        with open(config_file, "w") as f:
-            print(f"No valid {config_file} found. A new one will be created.\n(If this is your first time running the program, this is normal)")
-            url = get_supabase_info(0)
-            api_key = get_supabase_info(1)
-            gamesjson_file = default_config['gamesjson_file']
-            temp_config = copy.deepcopy(default_config)
-            temp_config['supabase']['url'] = url
-            temp_config['supabase']['api_key'] = api_key
-            json.dump(temp_config, f, indent=4)
-            print('\nConfig file successfully regenerated!\n')
+    valid = is_json_valid(config_file)
+    regenerate = False
+    if valid:
+        with open(config_file, 'r') as f:
+            config = json.load(f)
+            try:
+                url = config['supabase']['url']
+                api_key = config['supabase']['api_key']
+                games_file = config['games_file']
+            except:
+                regenerate = True
+
+    # If config missing, empty or in invalid format
+    if not valid or regenerate == True:
+        url, api_key, games_file = regenerate_cfg()
     else:
         # Otherwise load config
         with open(config_file, 'r') as f:
-            config = json.load(f)
-            url = config['supabase']['url']
-            api_key = config['supabase']['api_key']
-            gamesjson_file = config['gamesjson_file']
-
+            # Checking if anything is empty
             changed = False
             if url == '':
                 print(f'The url value in your {config_file} is empty')
@@ -52,15 +50,35 @@ def load_cfg():
                 api_key = get_supabase_info(1)
                 config['supabase']['api_key'] = api_key      
                 changed = True
-            if gamesjson_file == '':
-                config['gamesjson_file'] = 'games.json'
+            if games_file == '':
+                config['games_file'] = 'games.json'
                 changed = True
             
             if changed:
                 with open(config_file, "w") as f:
                     json.dump(config, f, indent=4)
-    return gamesjson_file, url, api_key
+    return games_file, url, api_key
 
+# Takes integer input until valid
+def int_range_input(input_message, min, max):
+    while True:
+        choice = input(input_message).strip()
+        try: 
+            choice = int(choice)
+            if not (min <= choice <= max):
+                print('Input out of range')
+            else:
+                return choice
+        except ValueError:
+            print('Input must be a valid number\n')
+
+def str_input(input_message):
+    data = ''
+    while data == '':
+        data = input(input_message).strip()
+        if data == '':
+            print('Input cannot be empty')
+    return data
 
 # Checks OS Type
 def get_platform():
@@ -80,6 +98,15 @@ def internet_check(host="8.8.8.8", port=53, timeout=3):
             print("No internet access detected. Press 'Enter' to retry or 'Ctrl + C' to exit")
             input()
 
+# If choice is 0 program inputs url. If choice is 1 program inputs api_key
+def get_supabase_info(choice):
+    if choice == 0:
+        input_message = 'Enter your supabase data api url: '
+    elif choice == 1:
+        input_message = 'Enter your supabase service_role api key: '
+    data = str_input(input_message)
+    return data
+
 def is_json_valid(file):
     # Does file exist
     if not os.path.exists(file):
@@ -95,7 +122,8 @@ def is_json_valid(file):
         return False
     return True
 
-def write_new_path(games, entry_name_to_edit, gamesjson_file, system):
+# To update game entry paths
+def write_new_path(games, entry_name_to_edit, system):
     if get_platform() != system:
         print(f'WARNING: Since you are currently not on {system} the program will not check to see if the entered {system} path is valid')
         system_path = input(f"\nEnter the new {system} save path for your game: ").strip()
@@ -105,46 +133,31 @@ def write_new_path(games, entry_name_to_edit, gamesjson_file, system):
             system_path = input(f"The entered {system} path is not valid. Please try again: ").strip()
 
     games[entry_name_to_edit][system] = system_path
-    with open(gamesjson_file, 'w') as f:
+    with open(games_file, 'w') as f:
         json.dump(games, f, indent=4)
     
     print('\nSave path successfully changed!')
 
+# To input game entry 
 def take_entry_input(keyword, print_paths=True):
-    if not is_json_valid(gamesjson_file):
+    if not is_json_valid(games_file):
         print('You have no game entries\n')
         return
 
-    with open(gamesjson_file, 'r') as f:
+    with open(games_file, 'r') as f:
         games = json.load(f)
 
     # Taking input
     list_games(print_paths)
-    while True:
-        entry_num_to_modify = input(f'Entry number to {keyword}: ').strip()
-        try: 
-            entry_num_to_modify = int(entry_num_to_modify)
-            if not (1 <= entry_num_to_modify <= len(games)):
-                if len(games) > 1:
-                    print(f'Input must be between 1 and {len(games)}\n')
-                else:
-                    print('Input out of range')
-            else:
-                break
-        except ValueError:
-            print('Input must be a valid number\n')
+    input_message = f'Enter the entry number to {keyword}: '
+    entry_num_to_modify = int_range_input(input_message, 1, len(games))
 
     # Converting name to index number
     games_keys = list(games)
     entry_name_to_modify = games_keys[entry_num_to_modify - 1]
     return games, entry_name_to_modify
-
-    #for file_path in local_path.rglob("*"):
-    #    if file_path.is_file():
         
-
-
-
+    
 def upload_save(games=None, entry_name_to_modify=None):
     internet_check()
     client = supabase.create_client(url, api_key)
@@ -175,9 +188,9 @@ def add_game_entry():
     system = get_platform()
     
     # Loading file if exists else create new
-    if os.path.exists(gamesjson_file):
+    if os.path.exists(games_file):
         try:
-            with open (gamesjson_file, "r") as f:
+            with open (games_file, "r") as f:
                 games = json.load(f)
         except json.JSONDecodeError:
             games = {}
@@ -223,30 +236,31 @@ def add_game_entry():
     }
 
     # Writing changes to file
-    with open(gamesjson_file, 'w') as f:
+    with open(games_file, 'w') as f:
         json.dump(games, f, indent=4)
 
-    print(f"\n{game_name} has been added successfully!\n")
+    print(f"\n{game_name} has been added successfully!")
 
 
 def remove_game_entry():
     games,entry_name_to_del = take_entry_input('delete', False)
     del games[entry_name_to_del]
 
-    with open(gamesjson_file, 'w') as f:
+    with open(games_file, 'w') as f:
         json.dump(games, f, indent=4)
 
-    print(f'\n{entry_name_to_del} has been removed from your games\n')
+    print(f'\n{entry_name_to_del} has been removed from your games')
 
 
 
 def edit_game_entry():
     games, entry_name_to_edit = take_entry_input('edit')
-
+    input_message = "\n1: Entry name\n2: Windows path\n3: Linux path\n4: Return to main menu\nSelect what to edit: "
+    
     while True:
-        choice = input("\nSelect what to edit\n1: Entry name\n2: Windows path\n3: Linux path\n4: Return to main menu\n").strip()
+        choice = int_range_input(input_message, 1, 4)
         match choice:
-            case "1":
+            case 1:
                 while True:
                     # Taking input
                     new_name = input('Enter new entry name: ').strip()
@@ -265,14 +279,14 @@ def edit_game_entry():
                     else:
                         new_games[key] = value
                 
-                with open(gamesjson_file, 'w') as f:
+                with open(games_file, 'w') as f:
                     json.dump(new_games, f, indent=4)
-                print(f'\nEntry name successfully changed from {entry_name_to_edit} to {new_name}!\n')
-            case "2":
-                write_new_path(games, entry_name_to_edit, gamesjson_file, "windows")
-            case "3":
-                write_new_path(games, entry_name_to_edit, gamesjson_file, "linux")
-            case "4":
+                print(f'\nEntry name successfully changed from {entry_name_to_edit} to {new_name}!')
+            case 2:
+                write_new_path(games, entry_name_to_edit, "windows")
+            case 3:
+                write_new_path(games, entry_name_to_edit, "linux")
+            case 4:
                 return
             case _:
                 print("Invalid option. Please try again\n")
@@ -280,11 +294,11 @@ def edit_game_entry():
 # print_paths determines whether the games save paths are printed along with the names
 def list_games(print_paths=True):
     system = get_platform()
-    if not is_json_valid(gamesjson_file):
+    if not is_json_valid(games_file):
         print('You have no game entries\n')
         return
 
-    with open(gamesjson_file, 'r') as f:
+    with open(games_file, 'r') as f:
         games = json.load(f)
     
     count = 1
@@ -298,6 +312,29 @@ def list_games(print_paths=True):
         if print_paths:
             print()
 
+def edit_supabase_info():
+    while True:
+        input_message = '1: Supabase Data API URL\n2: Supabase service_role API Key\n3: Return to main menu\nSelect what to edit: '
+        choice = int_range_input(input_message, 1, 3)
+        with open(config_file, 'r') as f:
+            config = json.load(f)
+        match choice:
+            case 1:
+                with open(config_file, 'r') as f:
+                    config = json.load(f)
+                url = get_supabase_info(0)
+                config['supabase']['url'] = url
+            case 2:
+                with open(config_file, 'r') as f:
+                    config = json.load(f)
+                api_key = get_supabase_info(1)
+                config['supabase']['api_key'] = api_key
+            case 3:
+                return
+        with open(config_file, 'w') as f:
+            json.dump(config, f, indent=4)
+        print('Data successfully updated!\n')
+        
 # Main
 
 default_config = {
@@ -305,13 +342,14 @@ default_config = {
         "url": "",
         "api_key": ""
     },
-    "gamesjson_file": "games.json",
+    "games_file": "games.json",
     "upload_on_startup": False,
     "skip_extensions": ['.tmp'],
 }
 
+config_file = 'config.json'
 cfg = load_cfg()    
-gamesjson_file, url, api_key = cfg
+games_file, url, api_key = cfg
 
 # Checking OS
 operating_sys = get_platform()
@@ -322,22 +360,24 @@ if operating_sys == "unsupported":
 internet_check()
 
 # Menu
+function_input_message = "\n1: Upload Save(s)\n2: Download Save(s)\n3: Check Save(s) Status\n4: Add game entry\n5: Remove game entry\n6: Edit game entry\n7: List games\n8: Edit Supabase info\nSelect your function or press 'Ctrl+C' to exit: "
 while True:
-    function_choice = input("Select your function or press 'Ctrl+C' to exit:\n1: Upload Save(s)\n2: Download Save(s)\n3: Check Save(s) Status\n4: Add game entry\n5: Remove game entry\n6: Edit game entry\n7: List games\n").strip()
+    function_choice = int_range_input(function_input_message, 1, 8)
+    print()
     match function_choice:
-        case "1":
+        case 1:
             upload_save()
-        case "2":
+        case 2:
             pass
-        case "3":
+        case 3:
             pass
-        case "4":
+        case 4:
             add_game_entry()
-        case "5":
+        case 5:
             remove_game_entry()
-        case "6":
+        case 6:
             edit_game_entry()
-        case "7":
+        case 7:
             list_games()
-        case _:
-            print("Invalid option. Please try again")
+        case 8:
+            edit_supabase_info()
