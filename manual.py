@@ -2,7 +2,27 @@ import platform
 import socket
 import json
 import os
+import sys
 import supabase
+from pathlib import Path
+
+def load_cfg():
+    if not is_json_valid("config.json"):
+        with open("config.json", "w") as f:
+            json.dump(default_config, f, indent=4)
+            print('Your config.json file was either missing (if this is your first time running the program then this is normal), empty, or corrupted. It has been regenerated with the defaults. Please edit it and enter your supabase data api url and service_role api key and rerun the program.')
+            sys.exit()
+
+    with open("config.json", 'r') as f:
+        config = json.load(f)
+        url = config['supabase']['url']
+        api_key = config['supabase']['api_key']
+        gamesjson_file = config['gamesjson_file']
+        if url == '' or api_key == '':
+            print('The url and/or api_key values in your config.json file are empty. Please fill them with your supabase data api url and service_role api key and rerun the program.')
+            sys.exit()
+        return gamesjson_file, url, api_key
+
 
 # Checks OS Type
 def get_platform():
@@ -11,37 +31,33 @@ def get_platform():
     elif system == "Linux": return "linux"
     else: return "unsupported"
 
-# Attempts to connect to google servers
-def has_internet(host="8.8.8.8", port=53, timeout=3):
-    try:
-        socket.setdefaulttimeout(timeout)
-        socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
-        return True
-    except socket.error:
-        return False
-    
 # Doesn't let the user continue until they have internet access
-def internet_check():
-    while not has_internet():
-        print("No internet access detected. Press 'Enter' to retry or 'Ctrl + C' to exit")
-        input()
+def internet_check(host="8.8.8.8", port=53, timeout=3):
+    while True:
+        try:
+            socket.setdefaulttimeout(timeout)
+            socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
+            return
+        except socket.error:
+            print("No internet access detected. Press 'Enter' to retry or 'Ctrl + C' to exit")
+            input()
 
-def is_gamesjson_valid():
+def is_json_valid(file):
     # Does file exist
-    if not os.path.exists(json_file):
+    if not os.path.exists(file):
         return False
     try:
-        with open(json_file, 'r') as f:
-            games = json.load(f)
+        with open(file, 'r') as f:
+            loaded_file = json.load(f)
     except json.JSONDecodeError:
     # File is completely empty
         return False
     # File is just '{}'
-    if not games:
+    if not loaded_file:
         return False
     return True
 
-def write_new_path(games, entry_name_to_edit, json_file, system):
+def write_new_path(games, entry_name_to_edit, gamesjson_file, system):
     if get_platform() != system:
         print(f'WARNING: Since you are currently not on {system} the program will not check to see if the entered {system} path is valid')
         system_path = input(f"\nEnter the new {system} save path for your game: ").strip()
@@ -51,17 +67,17 @@ def write_new_path(games, entry_name_to_edit, json_file, system):
             system_path = input(f"The entered {system} path is not valid. Please try again: ").strip()
 
     games[entry_name_to_edit][system] = system_path
-    with open(json_file, 'w') as f:
+    with open(gamesjson_file, 'w') as f:
         json.dump(games, f, indent=4)
     
     print('\nSave path successfully changed!')
 
 def take_entry_input(keyword, print_paths=True):
-    if not is_gamesjson_valid():
+    if not is_json_valid(gamesjson_file):
         print('You have no game entries\n')
         return
 
-    with open(json_file, 'r') as f:
+    with open(gamesjson_file, 'r') as f:
         games = json.load(f)
 
     # Taking input
@@ -83,10 +99,33 @@ def take_entry_input(keyword, print_paths=True):
     # Converting name to index number
     games_keys = list(games)
     entry_name_to_modify = games_keys[entry_num_to_modify - 1]
-    return games, entry_name_to_modify, json_file
+    return games, entry_name_to_modify
 
-def upload_save():
-    pass
+    #for file_path in local_path.rglob("*"):
+    #    if file_path.is_file():
+        
+
+
+
+def upload_save(games=None, entry_name_to_modify=None):
+    internet_check()
+    client = supabase.create_client(url, api_key)
+    if games==None and entry_name_to_modify==None:
+        games, entry_name_to_modify = take_entry_input('upload', print_paths=False)
+
+    local_path = Path(games[entry_name_to_modify][operating_sys])
+    
+    # .rglob recursively goes through every file and directory while maintaining subdirectories
+    for file_path in local_path.rglob("*"):
+        # Only need to upload files not folders, subdirectories will reamain intact because of .rglob
+        if file_path.is_file():
+            # Makes full path into relative path 
+            relative_path = file_path.relative_to(local_path)
+            upload_path = f"{entry_name_to_modify}/{relative_path}".replace('\\', '/')
+            
+            with open(file_path, 'rb') as f:
+                client.storage.from_("game-saves").upload(upload_path, f)
+                print(f"Uploaded: {upload_path}")
 
 def download_save():
     pass
@@ -98,9 +137,9 @@ def add_game_entry():
     system = get_platform()
     
     # Loading file if exists else create new
-    if os.path.exists(json_file):
+    if os.path.exists(gamesjson_file):
         try:
-            with open (json_file, "r") as f:
+            with open (gamesjson_file, "r") as f:
                 games = json.load(f)
         except json.JSONDecodeError:
             games = {}
@@ -146,17 +185,17 @@ def add_game_entry():
     }
 
     # Writing changes to file
-    with open(json_file, 'w') as f:
+    with open(gamesjson_file, 'w') as f:
         json.dump(games, f, indent=4)
 
     print(f"\n{game_name} has been added successfully!\n")
 
 
 def remove_game_entry():
-    games,entry_name_to_del,json_file = take_entry_input('delete', False)
+    games,entry_name_to_del = take_entry_input('delete', False)
     del games[entry_name_to_del]
 
-    with open(json_file, 'w') as f:
+    with open(gamesjson_file, 'w') as f:
         json.dump(games, f, indent=4)
 
     print(f'\n{entry_name_to_del} has been removed from your games\n')
@@ -164,7 +203,7 @@ def remove_game_entry():
 
 
 def edit_game_entry():
-    games, entry_name_to_edit, json_file = take_entry_input('edit')
+    games, entry_name_to_edit = take_entry_input('edit')
 
     while True:
         choice = input("\nSelect what to edit\n1: Entry name\n2: Windows path\n3: Linux path\n4: Return to main menu\n").strip()
@@ -188,26 +227,26 @@ def edit_game_entry():
                     else:
                         new_games[key] = value
                 
-                with open(json_file, 'w') as f:
+                with open(gamesjson_file, 'w') as f:
                     json.dump(new_games, f, indent=4)
                 print(f'\nEntry name successfully changed from {entry_name_to_edit} to {new_name}!\n')
             case "2":
-                write_new_path(games, entry_name_to_edit, json_file, "windows")
+                write_new_path(games, entry_name_to_edit, gamesjson_file, "windows")
             case "3":
-                write_new_path(games, entry_name_to_edit, json_file, "linux")
+                write_new_path(games, entry_name_to_edit, gamesjson_file, "linux")
             case "4":
                 return
             case _:
                 print("Invalid option. Please try again\n")
 
-
+# print_paths determines whether the games save paths are printed along with the names
 def list_games(print_paths=True):
     system = get_platform()
-    if not is_gamesjson_valid():
+    if not is_json_valid(gamesjson_file):
         print('You have no game entries\n')
         return
 
-    with open(json_file, 'r') as f:
+    with open(gamesjson_file, 'r') as f:
         games = json.load(f)
     
     count = 1
@@ -221,9 +260,20 @@ def list_games(print_paths=True):
         if print_paths:
             print()
 
+# Main
 
+default_config = {
+    "supabase": {
+        "url": "",
+        "api_key": ""
+    },
+    "gamesjson_file": "games.json",
+    "upload_on_startup": False,
+    "skip_extensions": ['.tmp'],
+}
 
-json_file = "games.json"
+cfg = load_cfg()    
+gamesjson_file, url, api_key = cfg
 
 # Checking OS
 operating_sys = get_platform()
@@ -233,12 +283,15 @@ if operating_sys == "unsupported":
 
 internet_check()
 
+local_path = "S:\\Miscellaneous\\Random\\test"
+local_path = Path(local_path)
+
 # Menu
 while True:
     function_choice = input("Select your function or press 'Ctrl+C' to exit:\n1: Upload Save(s)\n2: Download Save(s)\n3: Check Save(s) Status\n4: Add game entry\n5: Remove game entry\n6: Edit game entry\n7: List games\n").strip()
     match function_choice:
         case "1":
-            pass
+            upload_save()
         case "2":
             pass
         case "3":
@@ -253,5 +306,3 @@ while True:
             list_games()
         case _:
             print("Invalid option. Please try again")
-            
-
