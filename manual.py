@@ -6,7 +6,8 @@ import supabase
 from pathlib import Path
 import copy
 from rich import print
-from rich.traceback import install 
+from rich.traceback import install
+from rich.prompt import Prompt
 
 def regenerate_cfg():
     with open(config_file, "w") as f:
@@ -15,12 +16,13 @@ def regenerate_cfg():
         api_key = get_supabase_info(1)
         games_file = default_config['games_file']
         skip_extensions = default_config['skip_extensions']
+        games_bucket = default_config['games_bucket']
         temp_config = copy.deepcopy(default_config)
         temp_config['supabase']['url'] = url
         temp_config['supabase']['api_key'] = api_key
         json.dump(temp_config, f, indent=4)
         print('\nConfig file successfully regenerated!')
-        return url, api_key, games_file, skip_extensions
+        return url, api_key, games_file, skip_extensions, games_bucket
 
 def load_cfg():
     valid = is_json_valid(config_file)
@@ -33,12 +35,13 @@ def load_cfg():
                 api_key = config['supabase']['api_key']
                 games_file = config['games_file']
                 skip_extensions = config['skip_extensions']
+                games_bucket = config['games_bucket']
             except:
                 regenerate = True
 
     # If config missing, empty or in invalid format
     if not valid or regenerate == True:
-        url, api_key, games_file, skip_extensions = regenerate_cfg()
+        url, api_key, games_file, skip_extensions, games_bucket = regenerate_cfg()
     else:
         # Otherwise load config
         with open(config_file, 'r') as f:
@@ -57,16 +60,18 @@ def load_cfg():
             if games_file == '':
                 config['games_file'] = 'games.json'
                 changed = True
-            
+            if games_bucket == '':
+                config['games_bucket'] = 'game-saves'
+                changed = True
             if changed:
                 with open(config_file, "w") as f:
                     json.dump(config, f, indent=4)
-    return games_file, url, api_key, skip_extensions
+    return games_file, url, api_key, skip_extensions, games_bucket
 
 # Takes integer input until valid
 def int_range_input(input_message, min, max):
     while True:
-        choice = input(input_message).strip()
+        choice = Prompt.ask(input_message).strip()
         try: 
             choice = int(choice)
             if not (min <= choice <= max):
@@ -79,7 +84,7 @@ def int_range_input(input_message, min, max):
 def str_input(input_message):
     data = ''
     while data == '':
-        data = input(input_message).strip()
+        data = Prompt.ask(input_message).strip()
         if data == '':
             print('Input cannot be empty')
     return data
@@ -102,12 +107,14 @@ def internet_check(host="8.8.8.8", port=53, timeout=3):
             print("No internet access detected. Press 'Enter' to retry or 'Ctrl + C' to exit")
             input()
 
+
+
 # If choice is 0 program inputs url. If choice is 1 program inputs api_key
 def get_supabase_info(choice):
     if choice == 0:
-        input_message = 'Enter your supabase data api url: '
+        input_message = 'Enter your supabase data api url'
     elif choice == 1:
-        input_message = 'Enter your supabase service_role api key: '
+        input_message = 'Enter your supabase service_role api key'
     data = str_input(input_message)
     return data
 
@@ -130,11 +137,11 @@ def is_json_valid(file):
 def write_new_path(games, entry_name_to_edit, system):
     if get_platform() != system:
         print(f'WARNING: Since you are currently not on {system} the program will not check to see if the entered {system} path is valid')
-        system_path = input(f"\nEnter the new {system} save path for your game: ").strip()
+        system_path = Prompt.ask(f"\nEnter the new {system} save path for your game").strip()
     else:
-        system_path = input(f"\nEnter the new {system} save path for your game: ").strip()
+        system_path = Prompt.ask(f"\nEnter the new {system} save path for your game").strip()
         while not os.path.exists(system_path):
-            system_path = input(f"The entered {system} path is not valid. Please try again: ").strip()
+            system_path = Prompt.ask(f"The entered {system} path is not valid. Please try again").strip()
 
     games[entry_name_to_edit][system] = system_path
     with open(games_file, 'w') as f:
@@ -153,7 +160,7 @@ def take_entry_input(keyword, print_paths=True):
 
     # Taking input
     list_games(print_paths)
-    input_message = f'Enter the entry number to {keyword}: '
+    input_message = f'Enter the entry number to {keyword}'
     entry_num_to_modify = int_range_input(input_message, 1, len(games))
 
     # Converting name to index number
@@ -161,11 +168,36 @@ def take_entry_input(keyword, print_paths=True):
     entry_name_to_modify = games_keys[entry_num_to_modify - 1]
     return games, entry_name_to_modify
         
-    
-def upload_save(games=None, entry_name_to_modify=None):
+
+# Returns True if valid. Returns False if invalid. Returns 0 if unexpected error
+def is_supabase_valid():
     internet_check()
+    try:
+        client = supabase.create_client(url, api_key)
+        client.storage.from_(games_bucket).list()
+        return True
+    except Exception as e:
+        if e.message == 'Invalid URL':
+            print(f'[red]The Supabase data api url in your {config_file} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
+            edit_supabase_info(1)
+            return False
+        elif e.message == 'Invalid Compact JWS' or 'JWS Protected Header is invalid':
+            print(f'[red]The Supabase service_role api key in your {config_file} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
+            edit_supabase_info(2)
+            return False
+        else:
+            print(f"[red]ERROR:[/] {e}")
+            return 0
+                
+def upload_save(games=None, entry_name_to_modify=None):
+    valid = is_supabase_valid()
+    # Global vars will be updated and function will be recalled
+    # (unless valid=0 which means unexpected error)
+    if not valid:
+        return valid
+
     client = supabase.create_client(url, api_key)
-    if games==None and entry_name_to_modify==None:
+    if games == None and entry_name_to_modify == None:
         games, entry_name_to_modify = take_entry_input('upload', print_paths=False)
 
     local_path = Path(games[entry_name_to_modify][operating_sys])
@@ -180,9 +212,12 @@ def upload_save(games=None, entry_name_to_modify=None):
             relative_path = file_path.relative_to(local_path)
             upload_path = f"{entry_name_to_modify}/{relative_path}".replace('\\', '/')
             
-            with open(file_path, 'rb') as f:
-                client.storage.from_("game-saves").upload(upload_path, f)
-                print(f"Uploaded: {upload_path}")
+            try:
+                with open(file_path, 'rb') as f:
+                    client.storage.from_(games_bucket).upload(upload_path, f)
+                    print(f"Uploaded: {upload_path}")
+            except Exception as e:
+                print(f'[red]ERROR:[/] {e}')
 
 def download_save():
     pass
@@ -206,7 +241,7 @@ def add_game_entry():
     # Getting game name and validating
     game_name = ''
     while game_name == '':
-        game_name = input("Enter the name of your game: ").strip()
+        game_name = Prompt.ask("Enter the name of your game").strip()
         if game_name == '':
             print("Game name cannot be empty. Please try again\n")
 
@@ -220,20 +255,20 @@ def add_game_entry():
         secondary_system = "windows"
 
     # Inputting save paths
-    system_path = input(f"\nEnter the {system} save path for your game: ").strip()
+    system_path = Prompt.ask(f"\nEnter the {system} save path for your game").strip()
     while not os.path.exists(system_path):
-        system_path = input(f"The entered {system} path is not valid. Please try again: ").strip()
+        system_path = Prompt.ask(f"The entered {system} path is not valid. Please try again").strip()
     
-    choice = input(f"\nDo you want to add the {secondary_system} save path? Please note that if you choose yes, the program will not check if the entered path is valid (y/n): ").strip().lower()
+    choice = Prompt.ask(f"\nDo you want to add the {secondary_system} save path? Please note that if you choose yes, the program will not check if the entered path is valid (y/n)").strip().lower()
     while True:
         if choice == 'y':
-            secondary_path = input(f"Enter the {secondary_system} save path for your game: ").strip()
+            secondary_path = Prompt.ask(f"Enter the {secondary_system} save path for your game").strip()
             break
         elif choice == 'n':
             secondary_path = ''
             break
         else:
-            choice = input("Incorrect input. Please answer with 'y' or 'n': ").strip().lower()
+            choice = Prompt.ask("Incorrect input. Please answer with 'y' or 'n'").strip().lower()
 
     # Adding entry to file        
     games[game_name] = {
@@ -261,7 +296,7 @@ def remove_game_entry():
 
 def edit_game_entry():
     games, entry_name_to_edit = take_entry_input('edit')
-    input_message = "\n1: Entry name\n2: Windows path\n3: Linux path\n4: Return to main menu\nSelect what to edit: "
+    input_message = "\n1: Entry name\n2: Windows path\n3: Linux path\n4: Return to main menu\nSelect what to edit"
     
     while True:
         choice = int_range_input(input_message, 1, 4)
@@ -269,7 +304,7 @@ def edit_game_entry():
             case 1:
                 while True:
                     # Taking input
-                    new_name = input('Enter new entry name: ').strip()
+                    new_name = Prompt.ask('Enter new entry name').strip()
                     if new_name == '':
                         print('Entry name cannot be empty. Please try again\n')
                     elif new_name in games:
@@ -318,10 +353,13 @@ def list_games(print_paths=True):
         if print_paths:
             print()
 
-def edit_supabase_info():
+def edit_supabase_info(choice=None):
+    # To track whether user called or function called as the value of choice will change
+    temp_choice = choice
     while True:
-        input_message = '1: Supabase Data API URL\n2: Supabase service_role API Key\n3: Return to main menu\nSelect what to edit: '
-        choice = int_range_input(input_message, 1, 3)
+        if choice == None:
+            input_message = '1: Supabase Data API URL\n2: Supabase service_role API Key\n3: Return to main menu\nSelect what to edit'
+            choice = int_range_input(input_message, 1, 3)
         match choice:
             case 1:
                 with open(config_file, 'r') as f:
@@ -337,14 +375,15 @@ def edit_supabase_info():
                 return
         with open(config_file, 'w') as f:
             json.dump(config, f, indent=4)
+        if temp_choice != None:
+            return
         print('Data successfully updated!\n')
-        
 # Main
 
 # Rich traceback install
 install()
 
-print("[bold]=== Cloud Save Manager ===[/]")
+#print("[bold]=== Cloud Saves ===[/]")
 
 default_config = {
     "supabase": {
@@ -352,12 +391,13 @@ default_config = {
         "api_key": ""
     },
     "games_file": "games.json",
+    "games_bucket":"game-saves",
     "upload_on_startup": False,
     "skip_extensions": ['.tmp'],
 }
 
 config_file = 'config.json'
-games_file, url, api_key, skip_extensions = load_cfg()    
+games_file, url, api_key, skip_extensions, games_bucket = load_cfg()    
 
 # Checking OS
 operating_sys = get_platform()
@@ -368,13 +408,21 @@ if operating_sys == "unsupported":
 internet_check()
 
 # Menu
-function_input_message = "\n1: Upload Save(s)\n2: Download Save(s)\n3: Check Save(s) Status\n4: Add game entry\n5: Remove game entry\n6: Edit game entry\n7: List games\n8: Edit Supabase info\nSelect your function or press 'Ctrl+C' to exit: "
+function_input_message = "\n[bold]=== Cloud Saves ===[/]\n1: Upload Save(s)\n2: Download Save(s)\n3: Check Save(s) Status\n4: Add game entry\n5: Remove game entry\n6: Edit game entry\n7: List games\n8: Edit Supabase info\nSelect your function or press 'Ctrl+C' to exit"
 while True:
     function_choice = int_range_input(function_input_message, 1, 8)
     print()
     match function_choice:
         case 1:
-            upload_save()
+            # If response == False it means Supabase validation failed, user updated url/api
+            # config was updated hence url and api_key global vars need to be reassigned and 
+            # function needs to be called again
+            while True:
+                response = upload_save()
+                if response == False:
+                    games_file, url, api_key, skip_extensions, games_bucket = load_cfg()
+                else:
+                    break
         case 2:
             pass
         case 3:
