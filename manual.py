@@ -5,6 +5,8 @@ import os
 import supabase
 from pathlib import Path
 import copy
+from rich import print
+from rich.traceback import install 
 
 def regenerate_cfg():
     with open(config_file, "w") as f:
@@ -12,12 +14,13 @@ def regenerate_cfg():
         url = get_supabase_info(0)
         api_key = get_supabase_info(1)
         games_file = default_config['games_file']
+        skip_extensions = default_config['skip_extensions']
         temp_config = copy.deepcopy(default_config)
         temp_config['supabase']['url'] = url
         temp_config['supabase']['api_key'] = api_key
         json.dump(temp_config, f, indent=4)
-        print('\nConfig file successfully regenerated!\n')
-        return url, api_key, games_file
+        print('\nConfig file successfully regenerated!')
+        return url, api_key, games_file, skip_extensions
 
 def load_cfg():
     valid = is_json_valid(config_file)
@@ -29,12 +32,13 @@ def load_cfg():
                 url = config['supabase']['url']
                 api_key = config['supabase']['api_key']
                 games_file = config['games_file']
+                skip_extensions = config['skip_extensions']
             except:
                 regenerate = True
 
     # If config missing, empty or in invalid format
     if not valid or regenerate == True:
-        url, api_key, games_file = regenerate_cfg()
+        url, api_key, games_file, skip_extensions = regenerate_cfg()
     else:
         # Otherwise load config
         with open(config_file, 'r') as f:
@@ -57,7 +61,7 @@ def load_cfg():
             if changed:
                 with open(config_file, "w") as f:
                     json.dump(config, f, indent=4)
-    return games_file, url, api_key
+    return games_file, url, api_key, skip_extensions
 
 # Takes integer input until valid
 def int_range_input(input_message, min, max):
@@ -170,6 +174,8 @@ def upload_save(games=None, entry_name_to_modify=None):
     for file_path in local_path.rglob("*"):
         # Only need to upload files not folders, subdirectories will reamain intact because of .rglob
         if file_path.is_file():
+            if file_path.suffix.lower() in skip_extensions:
+                continue
             # Makes full path into relative path 
             relative_path = file_path.relative_to(local_path)
             upload_path = f"{entry_name_to_modify}/{relative_path}".replace('\\', '/')
@@ -303,11 +309,11 @@ def list_games(print_paths=True):
     
     count = 1
     for game, paths in games.items():
-        print(f"\033[1m{count}: {game}\033[0m")
+        print(f"[bold]{count}: {game}[/]")
         if print_paths:
             for system, path in paths.items():
                 if path.strip():
-                    print(f"\033[4m{system.capitalize()} Path:\033[0m {path}")
+                    print(f"[underline]{system.capitalize()} Path:[/] {path}")
         count += 1
         if print_paths:
             print()
@@ -316,8 +322,6 @@ def edit_supabase_info():
     while True:
         input_message = '1: Supabase Data API URL\n2: Supabase service_role API Key\n3: Return to main menu\nSelect what to edit: '
         choice = int_range_input(input_message, 1, 3)
-        with open(config_file, 'r') as f:
-            config = json.load(f)
         match choice:
             case 1:
                 with open(config_file, 'r') as f:
@@ -337,6 +341,11 @@ def edit_supabase_info():
         
 # Main
 
+# Rich traceback install
+install()
+
+print("[bold]=== Cloud Save Manager ===[/]")
+
 default_config = {
     "supabase": {
         "url": "",
@@ -348,8 +357,7 @@ default_config = {
 }
 
 config_file = 'config.json'
-cfg = load_cfg()    
-games_file, url, api_key = cfg
+games_file, url, api_key, skip_extensions = load_cfg()    
 
 # Checking OS
 operating_sys = get_platform()
