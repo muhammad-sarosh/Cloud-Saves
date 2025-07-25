@@ -8,6 +8,7 @@ import copy
 from rich import print
 from rich.traceback import install
 from rich.prompt import Prompt
+import hashlib
 
 def regenerate_cfg():
     with open(config_file, "w") as f:
@@ -107,7 +108,23 @@ def internet_check(host="8.8.8.8", port=53, timeout=3):
             print("No internet access detected. Press 'Enter' to retry or 'Ctrl + C' to exit")
             input()
 
-
+def hash_save_folder(path):
+    # Intitialise md5 hash object
+    hasher = hashlib.md5()
+    # File system ordering can be random, so we use
+    # sorted so its the same everytime, imp for hashing
+    for file in sorted(path.rglob("*")):
+        if file.is_file() and file.suffix.lower() not in skip_extensions:
+            # Including file name in hash, ensures hash is affected if files
+            # are moved or renamed
+            hasher.update(file.name.encode())
+            with open(file, 'rb') as f:
+                # := both assigns and checks if the file is finished
+                # Reading file in chunks to avoid crashes on big files
+                while chunk := f.read(8192):
+                    hasher.update(chunk)
+    # hexdigest() turns the hash into a string                
+    return hasher.hexdigest()
 
 # If choice is 0 program inputs url. If choice is 1 program inputs api_key
 def get_supabase_info(choice):
@@ -149,10 +166,10 @@ def write_new_path(games, entry_name_to_edit, system):
     
     print('\nSave path successfully changed!')
 
-# To input game entry 
+# To input game entry. Returns None if there are no entries
 def take_entry_input(keyword, print_paths=True):
     if not is_json_valid(games_file):
-        print('You have no game entries\n')
+        print('You have no game entries')
         return
 
     with open(games_file, 'r') as f:
@@ -188,7 +205,7 @@ def is_supabase_valid():
         else:
             print(f"[red]ERROR:[/] {e}")
             return 0
-                
+
 def upload_save(games=None, entry_name_to_modify=None):
     valid = is_supabase_valid()
     # Global vars will be updated and function will be recalled
@@ -198,7 +215,11 @@ def upload_save(games=None, entry_name_to_modify=None):
 
     client = supabase.create_client(url, api_key)
     if games == None and entry_name_to_modify == None:
-        games, entry_name_to_modify = take_entry_input('upload', print_paths=False)
+        response = take_entry_input('upload', print_paths=False)
+        # True if there are no game entries
+        if response == None:
+            return
+        games, entry_name_to_modify = response
 
     local_path = Path(games[entry_name_to_modify][operating_sys])
     
@@ -212,12 +233,21 @@ def upload_save(games=None, entry_name_to_modify=None):
             relative_path = file_path.relative_to(local_path)
             upload_path = f"{entry_name_to_modify}/{relative_path}".replace('\\', '/')
             
+            # Checking if file already exists in Supabase, if yes then use
+            # update() otherwise use .upload()
             try:
                 with open(file_path, 'rb') as f:
-                    client.storage.from_(games_bucket).upload(upload_path, f)
+                    client.storage.from_(games_bucket).update(upload_path, f)
                     print(f"Uploaded: {upload_path}")
             except Exception as e:
-                print(f'[red]ERROR:[/] {e}')
+                if "Not found" in str(e) or "404" in str(e):
+                    with open(file_path, 'rb') as f2:
+                        client.storage.from_(games_bucket).upload(upload_path, f2)
+                        print(f"Uploaded: {upload_path}")
+                else:
+                    raise
+
+    print('\n[green]All files successfully uploaded![/]')
 
 def download_save():
     pass
@@ -405,10 +435,10 @@ if operating_sys == "unsupported":
     print("This program has detected your OS type as Unsupported. Press 'Enter' if you wish to continue")
     input()
 
-internet_check()
-
 # Menu
-function_input_message = "\n[bold]=== Cloud Saves ===[/]\n1: Upload Save(s)\n2: Download Save(s)\n3: Check Save(s) Status\n4: Add game entry\n5: Remove game entry\n6: Edit game entry\n7: List games\n8: Edit Supabase info\nSelect your function or press 'Ctrl+C' to exit"
+function_input_message = "\n[bold]=== Cloud Saves ===[/]\n1: Upload Save(s)\n2: Download Save(s)\n" \
+"3: Check Save(s) Status\n4: Add game entry\n5: Remove game entry\n6: Edit game entry\n7: List games\n" \
+"8: Edit Supabase info\nSelect your function or press 'Ctrl+C' to exit"
 while True:
     function_choice = int_range_input(function_input_message, 1, 8)
     print()
