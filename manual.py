@@ -8,6 +8,7 @@ import copy
 from rich import print
 from rich.traceback import install
 from rich.prompt import Prompt
+from rich.progress import Progress
 import hashlib
 
 def regenerate_cfg():
@@ -108,7 +109,7 @@ def internet_check(host="8.8.8.8", port=53, timeout=3):
             print("No internet access detected. Press 'Enter' to retry or 'Ctrl + C' to exit")
             input()
 
-def hash_save_folder(path):
+def hash_save_folder(path:Path):
     # Intitialise md5 hash object
     hasher = hashlib.md5()
     # File system ordering can be random, so we use
@@ -222,32 +223,42 @@ def upload_save(games=None, entry_name_to_modify=None):
         games, entry_name_to_modify = response
 
     local_path = Path(games[entry_name_to_modify][operating_sys])
+    files_to_upload = [f for f in local_path.rglob('*') if f.is_file() and f not in skip_extensions]
+    if not files_to_upload:
+        print('\n[yellow]The save directory for this game contains no files[/]')
+        return
     
-    # .rglob recursively goes through every file and directory while maintaining subdirectories
-    for file_path in local_path.rglob("*"):
-        # Only need to upload files not folders, subdirectories will reamain intact because of .rglob
-        if file_path.is_file():
-            if file_path.suffix.lower() in skip_extensions:
-                continue
-            # Makes full path into relative path 
-            relative_path = file_path.relative_to(local_path)
-            upload_path = f"{entry_name_to_modify}/{relative_path}".replace('\\', '/')
-            
-            # Checking if file already exists in Supabase, if yes then use
-            # update() otherwise use .upload()
-            try:
-                with open(file_path, 'rb') as f:
-                    client.storage.from_(games_bucket).update(upload_path, f)
-                    print(f"Uploaded: {upload_path}")
-            except Exception as e:
-                if "Not found" in str(e) or "404" in str(e):
-                    with open(file_path, 'rb') as f2:
-                        client.storage.from_(games_bucket).upload(upload_path, f2)
-                        print(f"Uploaded: {upload_path}")
-                else:
-                    raise
+    # Initialising progress bar
+    with Progress() as progress:
+        task = progress.add_task("[cyan]Uploading files...", total=len(files_to_upload))    
+        # .rglob recursively goes through every file and directory while maintaining subdirectories
+        for file_path in local_path.rglob("*"):
+            # Only need to upload files not folders, subdirectories will reamain intact because of .rglob
+            if file_path.is_file():
+                if file_path.suffix.lower() in skip_extensions:
+                    continue
+                # Makes full path into relative path 
+                relative_path = file_path.relative_to(local_path)
+                upload_path = f"{entry_name_to_modify}/{relative_path}".replace('\\', '/')
 
-    print('\n[green]All files successfully uploaded![/]')
+                # Updating current file name in progress bar
+                progress.update(task, description=f"[cyan]Uploading:[/] {relative_path.name}")
+                
+                # Checking if file already exists in Supabase, if yes then use
+                # update() otherwise use .upload()
+                try:
+                    with open(file_path, 'rb') as f:
+                        client.storage.from_(games_bucket).update(upload_path, f)
+                        #print(f"Uploaded: {upload_path}")
+                except Exception as e:
+                    if "Not found" in str(e) or "404" in str(e):
+                        with open(file_path, 'rb') as f2:
+                            client.storage.from_(games_bucket).upload(upload_path, f2)
+                            #print(f"Uploaded: {upload_path}")
+                    else:
+                        raise
+                progress.advance(task)
+        print('\n[green]All files successfully uploaded![/]')
 
 def download_save():
     pass
@@ -434,6 +445,12 @@ operating_sys = get_platform()
 if operating_sys == "unsupported":
     print("This program has detected your OS type as Unsupported. Press 'Enter' if you wish to continue")
     input()
+
+
+# path = r'S:\Miscellaneous\Random\test\Wolfenstein The New Order'
+# path = Path(path)
+# hash = hash_save_folder(path)
+# print(hash)
 
 # Menu
 function_input_message = "\n[bold]=== Cloud Saves ===[/]\n1: Upload Save(s)\n2: Download Save(s)\n" \
