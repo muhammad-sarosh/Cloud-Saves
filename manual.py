@@ -14,17 +14,18 @@ import hashlib
 def regenerate_cfg():
     with open(config_file, "w") as f:
         print(f"No valid {config_file} found. A new one will be created.\n(If this is your first time running the program, this is normal)")
-        url = get_supabase_info(0)
-        api_key = get_supabase_info(1)
+        url = get_supabase_info(1)
+        api_key = get_supabase_info(2)
         games_file = default_config['games_file']
         skip_extensions = default_config['skip_extensions']
-        games_bucket = default_config['games_bucket']
+        games_bucket = default_config['supabase']['games_bucket']
+        table_name = default_config['supabase']['table_name']
         temp_config = copy.deepcopy(default_config)
         temp_config['supabase']['url'] = url
         temp_config['supabase']['api_key'] = api_key
         json.dump(temp_config, f, indent=4)
         print('\nConfig file successfully regenerated!')
-        return url, api_key, games_file, skip_extensions, games_bucket
+        return url, api_key, games_file, skip_extensions, games_bucket, table_name
 
 def load_cfg():
     valid = is_json_valid(config_file)
@@ -37,13 +38,14 @@ def load_cfg():
                 api_key = config['supabase']['api_key']
                 games_file = config['games_file']
                 skip_extensions = config['skip_extensions']
-                games_bucket = config['games_bucket']
+                games_bucket = config['supabase']['games_bucket']
+                table_name = config['supabase']['table_name']
             except:
                 regenerate = True
 
     # If config missing, empty or in invalid format
     if not valid or regenerate == True:
-        url, api_key, games_file, skip_extensions, games_bucket = regenerate_cfg()
+        url, api_key, games_file, skip_extensions, games_bucket, table_name = regenerate_cfg()
     else:
         # Otherwise load config
         with open(config_file, 'r') as f:
@@ -51,24 +53,27 @@ def load_cfg():
             changed = False
             if url == '':
                 print(f'The url value in your {config_file} is empty')
-                url = get_supabase_info(0)
+                url = get_supabase_info(1)
                 config['supabase']['url'] = url
                 changed = True
             if api_key == '':
                 print(f'The api key value in your {config_file} is empty')
-                api_key = get_supabase_info(1)
+                api_key = get_supabase_info(2)
                 config['supabase']['api_key'] = api_key      
                 changed = True
             if games_file == '':
                 config['games_file'] = 'games.json'
                 changed = True
             if games_bucket == '':
-                config['games_bucket'] = 'game-saves'
+                config['supabase']['games_bucket'] = 'game-saves'
+                changed = True
+            if table_name == '':
+                config['supabase']['table_name'] = 'saves-data'
                 changed = True
             if changed:
                 with open(config_file, "w") as f:
                     json.dump(config, f, indent=4)
-    return games_file, url, api_key, skip_extensions, games_bucket
+    return games_file, url, api_key, skip_extensions, games_bucket, table_name
 
 # Takes integer input until valid
 def int_range_input(input_message, min, max):
@@ -127,12 +132,15 @@ def hash_save_folder(path:Path):
     # hexdigest() turns the hash into a string                
     return hasher.hexdigest()
 
-# If choice is 0 program inputs url. If choice is 1 program inputs api_key
 def get_supabase_info(choice):
-    if choice == 0:
+    if choice == 1:
         input_message = 'Enter your supabase data api url'
-    elif choice == 1:
+    elif choice == 2:
         input_message = 'Enter your supabase service_role api key'
+    elif choice == 3:
+        input_message = 'Enter your supabase bucket name'
+    elif choice == 4:
+        input_message = 'Enter your supabase database table name'
     data = str_input(input_message)
     return data
 
@@ -185,13 +193,18 @@ def take_entry_input(keyword, print_paths=True):
     games_keys = list(games)
     entry_name_to_modify = games_keys[entry_num_to_modify - 1]
     return games, entry_name_to_modify
-        
 
 # Returns True if valid. Returns False if invalid. Returns 0 if unexpected error
 def is_supabase_valid():
     internet_check()
     try:
         client = supabase.create_client(url, api_key)
+        all_buckets = client.storage.list_buckets()
+        bucket_exists = any(b.name == games_bucket for b in all_buckets)
+        if not bucket_exists:
+            print(f'[red]The Supabase games bucket name in your {config_file} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]') 
+            edit_supabase_info(3)
+            return False
         client.storage.from_(games_bucket).list()
         return True
     except Exception as e:
@@ -202,6 +215,10 @@ def is_supabase_valid():
         elif e.message == 'Invalid Compact JWS' or 'JWS Protected Header is invalid':
             print(f'[red]The Supabase service_role api key in your {config_file} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
             edit_supabase_info(2)
+            return False
+        elif 'bucket' in e.message.lower():
+            print(f'[red]The Supabase games bucket name in your {config_file} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]') 
+            edit_supabase_info(3)
             return False
         else:
             print(f"[red]ERROR:[/] {e}")
@@ -249,12 +266,10 @@ def upload_save(games=None, entry_name_to_modify=None):
                 try:
                     with open(file_path, 'rb') as f:
                         client.storage.from_(games_bucket).update(upload_path, f)
-                        #print(f"Uploaded: {upload_path}")
                 except Exception as e:
                     if "Not found" in str(e) or "404" in str(e):
                         with open(file_path, 'rb') as f2:
                             client.storage.from_(games_bucket).upload(upload_path, f2)
-                            #print(f"Uploaded: {upload_path}")
                     else:
                         raise
                 progress.advance(task)
@@ -398,59 +413,62 @@ def edit_supabase_info(choice=None):
     # To track whether user called or function called as the value of choice will change
     temp_choice = choice
     while True:
-        if choice == None:
-            input_message = '1: Supabase Data API URL\n2: Supabase service_role API Key\n3: Return to main menu\nSelect what to edit'
-            choice = int_range_input(input_message, 1, 3)
+        if temp_choice == None:
+            input_message = '1: Supabase Data API URL\n2: Supabase service_role API Key\n3: Supabase bucket name\n4: Supabase database table name\n5: Return to main menu\nSelect what to edit'
+            choice = int_range_input(input_message, 1, 5)
         match choice:
             case 1:
                 with open(config_file, 'r') as f:
                     config = json.load(f)
-                url = get_supabase_info(0)
+                url = get_supabase_info(1)
                 config['supabase']['url'] = url
             case 2:
                 with open(config_file, 'r') as f:
                     config = json.load(f)
-                api_key = get_supabase_info(1)
+                api_key = get_supabase_info(2)
                 config['supabase']['api_key'] = api_key
             case 3:
+                with open(config_file, 'r') as f:
+                    config = json.load(f)
+                games_bucket = get_supabase_info(3)
+                config['supabase']['games_bucket'] = games_bucket
+            case 4:
+                with open(config_file, 'r') as f:
+                    config = json.load(f)
+                table_name = get_supabase_info(4)
+                config['supabase']['table_name'] = table_name
+            case 5:
                 return
         with open(config_file, 'w') as f:
             json.dump(config, f, indent=4)
         if temp_choice != None:
             return
-        print('Data successfully updated!\n')
+        print('[green]Data successfully updated![/]\n')
 # Main
 
 # Rich traceback install
 install()
 
-#print("[bold]=== Cloud Saves ===[/]")
-
 default_config = {
     "supabase": {
         "url": "",
-        "api_key": ""
+        "api_key": "",
+        "games_bucket":"game-saves",
+        "table_name":"saves-data"
     },
     "games_file": "games.json",
-    "games_bucket":"game-saves",
     "upload_on_startup": False,
     "skip_extensions": ['.tmp'],
 }
 
 config_file = 'config.json'
-games_file, url, api_key, skip_extensions, games_bucket = load_cfg()    
+games_file, url, api_key, skip_extensions, games_bucket, table_name = load_cfg()    
 
 # Checking OS
 operating_sys = get_platform()
 if operating_sys == "unsupported":
     print("This program has detected your OS type as Unsupported. Press 'Enter' if you wish to continue")
     input()
-
-
-# path = r'S:\Miscellaneous\Random\test\Wolfenstein The New Order'
-# path = Path(path)
-# hash = hash_save_folder(path)
-# print(hash)
 
 # Menu
 function_input_message = "\n[bold]=== Cloud Saves ===[/]\n1: Upload Save(s)\n2: Download Save(s)\n" \
@@ -467,7 +485,7 @@ while True:
             while True:
                 response = upload_save()
                 if response == False:
-                    games_file, url, api_key, skip_extensions, games_bucket = load_cfg()
+                    games_file, url, api_key, skip_extensions, games_bucket, table_name = load_cfg()
                 else:
                     break
         case 2:
