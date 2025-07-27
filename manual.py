@@ -13,7 +13,7 @@ import hashlib
 
 def regenerate_cfg():
     with open(config_file, "w") as f:
-        print(f"No valid {config_file} found. A new one will be created.\n(If this is your first time running the program, this is normal)")
+        print(f"[yellow]No valid {config_file} found. A new one will be created.\n(If this is your first time running the program, this is normal)[/]")
         url = get_supabase_info(1)
         api_key = get_supabase_info(2)
         games_file = default_config['games_file']
@@ -62,13 +62,13 @@ def load_cfg():
                 config['supabase']['api_key'] = api_key      
                 changed = True
             if games_file == '':
-                config['games_file'] = 'games.json'
+                config['games_file'] = default_config['games_file']
                 changed = True
             if games_bucket == '':
-                config['supabase']['games_bucket'] = 'game-saves'
+                config['supabase']['games_bucket'] = default_config['supabase']['games_bucket']
                 changed = True
             if table_name == '':
-                config['supabase']['table_name'] = 'saves-data'
+                config['supabase']['table_name'] = default_config['supabase']['table_name']
                 changed = True
             if changed:
                 with open(config_file, "w") as f:
@@ -218,7 +218,7 @@ def is_supabase_valid():
             try:
                 client.table(table_name).select(column).limit(1).execute()
             except Exception as e:
-                e = e.message.lower()
+                e = e.message.lower() if e.message else str(e).lower()
                 if 'column' in e and 'does not exist' in e:
                     missing_columns.append(column)
                 else:
@@ -442,30 +442,20 @@ def edit_supabase_info(choice=None):
     # To track whether user called or function called as the value of choice will change
     temp_choice = choice
     while True:
+        with open(config_file, 'r') as f:
+            config = json.load(f)
         if temp_choice == None:
             input_message = '1: Supabase Data API URL\n2: Supabase service_role API Key\n3: Supabase bucket name\n4: Supabase database table name\n5: Return to main menu\nSelect what to edit'
             choice = int_range_input(input_message, 1, 5)
         match choice:
             case 1:
-                with open(config_file, 'r') as f:
-                    config = json.load(f)
-                url = get_supabase_info(1)
-                config['supabase']['url'] = url
+                config['supabase']['url'] = get_supabase_info(1)
             case 2:
-                with open(config_file, 'r') as f:
-                    config = json.load(f)
-                api_key = get_supabase_info(2)
-                config['supabase']['api_key'] = api_key
+                config['supabase']['api_key'] = get_supabase_info(2)
             case 3:
-                with open(config_file, 'r') as f:
-                    config = json.load(f)
-                games_bucket = get_supabase_info(3)
-                config['supabase']['games_bucket'] = games_bucket
+                config['supabase']['games_bucket'] = get_supabase_info(3)
             case 4:
-                with open(config_file, 'r') as f:
-                    config = json.load(f)
-                table_name = get_supabase_info(4)
-                config['supabase']['table_name'] = table_name
+                config['supabase']['table_name'] = get_supabase_info(4)
             case 5:
                 return
         with open(config_file, 'w') as f:
@@ -473,6 +463,9 @@ def edit_supabase_info(choice=None):
         if temp_choice != None:
             return
         print('[green]Data successfully updated![/]\n')
+
+
+        
 # Main
 
 # Rich traceback install
