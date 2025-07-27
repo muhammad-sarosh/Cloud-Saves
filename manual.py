@@ -194,31 +194,60 @@ def take_entry_input(keyword, print_paths=True):
     entry_name_to_modify = games_keys[entry_num_to_modify - 1]
     return games, entry_name_to_modify
 
-# Returns True if valid. Returns False if invalid. Returns 0 if unexpected error
+# Returns True if valid. Returns False if invalid. Returns 1 if unexpected error
 def is_supabase_valid():
     internet_check()
     try:
+        # Checks URL and API key
         client = supabase.create_client(url, api_key)
+
+        # Checks Bucket
         all_buckets = client.storage.list_buckets()
         bucket_exists = any(b.name == games_bucket for b in all_buckets)
         if not bucket_exists:
             print(f'[red]The Supabase games bucket name in your {config_file} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]') 
             edit_supabase_info(3)
             return False
-        client.storage.from_(games_bucket).list()
+        
+        # Checks if table exists
+        client.table(table_name).select("*").limit(1).execute()
+
+        # Checks if table contains required columns
+        missing_columns = []
+        for column in required_columns:
+            try:
+                client.table(table_name).select(column).limit(1).execute()
+            except Exception as e:
+                e = e.message.lower()
+                if 'column' in e and 'does not exist' in e:
+                    missing_columns.append(column)
+                else:
+                    print(f"[red]ERROR:[/] {e}")
+                    return 0
+        if len(missing_columns) > 0:
+            formatted = ", ".join(missing_columns)
+            print(f"[red]The column(s) [underline]{formatted}[/] are missing from your table. Please create these columns and rerun the program[/]")
+            return 0
+        # Everything checks out
         return True
     except Exception as e:
-        if e.message == 'Invalid URL':
+        print(f"[red]{e}[/]")
+        e = e.message.lower()
+        if e == 'invalid url':
             print(f'[red]The Supabase data api url in your {config_file} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
             edit_supabase_info(1)
             return False
-        elif e.message == 'Invalid Compact JWS' or 'JWS Protected Header is invalid':
+        elif e == 'invalid compact jws' or e == 'jws protected header is invalid':
             print(f'[red]The Supabase service_role api key in your {config_file} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
             edit_supabase_info(2)
             return False
-        elif 'bucket' in e.message.lower():
+        elif 'bucket' in e:
             print(f'[red]The Supabase games bucket name in your {config_file} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]') 
             edit_supabase_info(3)
+            return False
+        elif 'relation' in e and 'does not exist' in e:
+            print(f'[red]The Supabase table name in your {config_file} is incorrect as a table with this name does not exist. You will be repeatedly prompted to update it until you enter it correctly[/]') 
+            edit_supabase_info(4)
             return False
         else:
             print(f"[red]ERROR:[/] {e}")
@@ -462,8 +491,8 @@ default_config = {
 }
 
 config_file = 'config.json'
-games_file, url, api_key, skip_extensions, games_bucket, table_name = load_cfg()    
-
+games_file, url, api_key, skip_extensions, games_bucket, table_name = load_cfg()
+required_columns = ['game_name', 'hash', 'updated_at']
 # Checking OS
 operating_sys = get_platform()
 if operating_sys == "unsupported":
@@ -484,7 +513,7 @@ while True:
             # function needs to be called again
             while True:
                 response = upload_save()
-                if response == False:
+                if response is False:
                     games_file, url, api_key, skip_extensions, games_bucket, table_name = load_cfg()
                 else:
                     break
