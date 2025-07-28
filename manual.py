@@ -47,7 +47,7 @@ def load_cfg(config_file, default_config):
                 regenerate = True
 
     # If config missing, empty or in invalid format
-    if not valid or regenerate == True:
+    if not valid or regenerate:
         url, api_key, games_file, skip_extensions, games_bucket, table_name = regenerate_cfg(config_file, default_config)
     else:
         # Otherwise load config
@@ -157,19 +157,14 @@ def get_supabase_info(choice):
     return data
 
 def is_json_valid(file):
-    # Does file exist
-    if not os.path.exists(file):
-        return False
     try:
         with open(file, 'r') as f:
             loaded_file = json.load(f)
-    except json.JSONDecodeError:
-    # File is completely empty
+        # File is either fine or just '{}' in which case it returns False
+        return bool(loaded_file)
+    # File doesnt exist or is empty/invalid
+    except (FileNotFoundError, json.JSONDecodeError):
         return False
-    # File is just '{}'
-    if not loaded_file:
-        return False
-    return True
 
 # To update game entry paths
 def write_new_path(config, games, entry_name_to_edit, system):
@@ -440,23 +435,17 @@ def list_games(config, print_paths=True):
     with open(config.games_file, 'r') as f:
         games = json.load(f)
     
-    count = 1
-    for game, paths in games.items():
+    for count, (game, paths) in enumerate(games.items(), 1):
         print(f"[bold]{count}: {game}[/]")
         if print_paths:
             for system, path in paths.items():
                 if path.strip():
                     print(f"[underline]{system.capitalize()} Path:[/] [purple]{path}[/]")
-        count += 1
         if print_paths:
             print()
 
 def edit_supabase_info(config, choice=None):
-    # To track whether user called or function called as the value of choice will change
-    if choice == None:
-        user_called = True
-    else:
-        user_called = False
+    user_called = False if choice else True
     while True:
         with open(config.config_file, 'r') as f:
             loaded_config = json.load(f)
