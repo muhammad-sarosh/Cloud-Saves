@@ -11,6 +11,7 @@ from rich.prompt import Prompt
 from rich.progress import Progress
 import hashlib
 from types import SimpleNamespace
+from datetime import datetime, timezone, timedelta
 
 def regenerate_cfg(config_file, default_config):
     with open(config_file, "w") as f:
@@ -76,6 +77,7 @@ def load_cfg(config_file, default_config):
             if changed:
                 with open(config_file, "w") as f:
                     json.dump(loaded_config, f, indent=4)
+    # for required_columns, the order MUST be game_name column, hash column, updated_at column
     return SimpleNamespace(
         config_file=config_file,
         url=url,
@@ -221,22 +223,37 @@ def supabase_validation(config):
         # Checks if table exists
         client.table(config.table_name).select("*").limit(1).execute()
 
-        # Checks if table contains required columns
         missing_columns = []
+        type_mismatch_columns = []
         for column in config.required_columns:
             try:
+                # Checks if table contains required columns
                 client.table(config.table_name).select(column).limit(1).execute()
+                # Check if type of each column is correct
+                if column in config.required_columns[0:2]:
+                        client.table(config.table_name).select(column).eq(column, "").limit(1).execute()
+                elif column == config.required_columns[2]:
+                        # Giving a datetime query that would only work with a timestamp object
+                        client.table(config.table_name).select(column).eq(column, datetime.now() + timedelta(days=1)).limit(1).execute()
             except Exception as e:
                 e_str = getattr(e, "message", None)
                 e_str = e_str.lower() if e_str else str(e).lower()
                 if 'column' in e_str and 'does not exist' in e_str:
                     missing_columns.append(column)
+                elif 'invalid input syntax' in  e_str:
+                    type_mismatch_columns.append(column)
                 else:
                     print(f"[red]ERROR:[/] {e}")
                     return -1
-        if len(missing_columns) > 0:
-            formatted = ", ".join(missing_columns)
-            print(f"[red]The column(s) [underline]{formatted}[/] are missing from your table. Please create these columns and rerun the program[/]")
+        if len(missing_columns) > 0 or len(type_mismatch_columns) > 0:
+            if len(missing_columns) > 0:
+                formatted = ", ".join(missing_columns)
+                print(f"[red]The column(s) [underline]{formatted}[/] are missing from your table[/]")
+            if len(type_mismatch_columns) > 0:
+                formatted = ", ".join(type_mismatch_columns)
+                print(f"[red]The column(s) [underline]{formatted}[/] have the wrong data type. These are the required data types for each column:[/]\n"\
+                      f"[red]{config.required_columns[0]}: text\n{config.required_columns[1]}: text\n{config.required_columns[2]}: timestamp[/]")
+            print("[red]Please make the required changes and rerun the function[/]")
             return -1
         # Everything checks out
         return True
@@ -310,6 +327,18 @@ def upload_save(config, games=None, entry_name_to_modify=None):
                 else:
                     raise
             progress.advance(task)
+
+    folder_hash = hash_save_folder(config=config, path=local_path)
+    row = {
+        config.required_columns[0]: entry_name_to_modify,
+        config.required_columns[1]: folder_hash,
+        config.required_columns[2]: datetime.now(timezone.utc).isoformat()
+    }
+    try:
+        client.table(config.table_name).upsert(row).execute()
+    except Exception as e:
+        print(f"[red]Failed to update table data for {entry_name_to_modify}: {e}[/]")
+
     if user_called:
         print('\n[green]All files successfully uploaded![/]')
 
