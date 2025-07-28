@@ -2,3 +2,4 @@ games.json
 config.json
 windows_env/
 linux_env/
+test.py
