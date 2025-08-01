@@ -2,6 +2,7 @@ import platform
 import socket
 import json
 import os
+import shutil
 import supabase
 from pathlib import Path
 import copy
@@ -77,7 +78,6 @@ def load_cfg(config_file, default_config):
             if changed:
                 with open(config_file, "w") as f:
                     json.dump(loaded_config, f, indent=4)
-    # for required_columns, the order MUST be game_name column, hash column, updated_at column
     return SimpleNamespace(
         config_file=config_file,
         url=url,
@@ -86,7 +86,11 @@ def load_cfg(config_file, default_config):
         table_name=table_name,
         games_file=games_file,
         skip_extensions=skip_extensions,
-        required_columns=['game_name', 'hash', 'updated_at']
+        required_columns={
+            'game_name':'game_name',
+            'hash':'hash',
+            'updated_at':'updated_at'
+        }
     )
 
 # Takes integer input until valid
@@ -195,13 +199,36 @@ def take_entry_input(config, keyword, print_paths=True):
 
     # Taking input
     list_games(config=config, print_paths=print_paths)
-    input_message = f'Enter the entry number to {keyword}'
+    input_message = f'Enter the entry number {keyword}'
     entry_num_to_modify = int_range_input(input_message, 1, len(games))
 
     # Converting name to index number
     games_keys = list(games)
     entry_name_to_modify = games_keys[entry_num_to_modify - 1]
     return games, entry_name_to_modify
+
+def move_files(source_path, backup_path):
+    # Creating trash, game and backup folders (if they don't already exist)
+    backup_path.mkdir(parents=True, exist_ok=True)
+
+    # Moving files to trash folder
+    for file in source_path.rglob("*"):
+        if file.is_file():
+            # Preserving the directory structure by geting relative path
+            relative_path = file.relative_to(source_path)
+            destination_path = backup_path / relative_path
+
+            # Making sure destination folders exist
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Moving the file
+            shutil.move(str(file), str(destination_path))
+
+    # Remove all empty folders (deepest first)
+    for folder in sorted(source_path.rglob("*"), reverse=True):
+        # Making sure folder is empty
+        if folder.is_dir() and not any(folder.iterdir()):
+            folder.rmdir()
 
 # Returns True if everthing is valid. Returns False and updates info if anything was invalid
 # Returns -1 if unexpected error
@@ -230,9 +257,9 @@ def supabase_validation(config):
                 # Checks if table contains required columns
                 client.table(config.table_name).select(column).limit(1).execute()
                 # Check if type of each column is correct
-                if column in config.required_columns[0:2]:
+                if column == config.required_columns['game_name'] or column == config.required_columns['hash']:
                         client.table(config.table_name).select(column).eq(column, "").limit(1).execute()
-                elif column == config.required_columns[2]:
+                elif column == config.required_columns['updated_at']:
                         # Giving a datetime query that would only work with a timestamp object
                         client.table(config.table_name).select(column).eq(column, datetime.now() + timedelta(days=1)).limit(1).execute()
             except Exception as e:
@@ -252,7 +279,7 @@ def supabase_validation(config):
             if len(type_mismatch_columns) > 0:
                 formatted = ", ".join(type_mismatch_columns)
                 print(f"[red]The column(s) [underline]{formatted}[/] have the wrong data type. These are the required data types for each column:[/]\n"\
-                      f"[red]{config.required_columns[0]}: text\n{config.required_columns[1]}: text\n{config.required_columns[2]}: timestamp[/]")
+                      f"[red]{config.required_columns['game_name']}: text\n{config.required_columns['hash']}: text\n{config.required_columns['updated_at']}: timestamptz[/]")
             print("[red]Please make the required changes and rerun the function[/]")
             return -1
         # Everything checks out
@@ -275,8 +302,9 @@ def supabase_validation(config):
         else:
             print(f"[red]ERROR:[/] {e}")
             return -1
-
+        
 def upload_save(config, games=None, entry_name_to_modify=None):
+    print('[blue]Connecting to Supabase...[/]\n')
     # Loop until all supabase data is validated and updated
     while True:
         valid = supabase_validation(config)
@@ -289,7 +317,7 @@ def upload_save(config, games=None, entry_name_to_modify=None):
     client = supabase.create_client(config.url, config.api_key)
     if games == None and entry_name_to_modify == None:
         user_called = True
-        response = take_entry_input(config=config, keyword='upload', print_paths=False)
+        response = take_entry_input(config=config, keyword='to upload', print_paths=False)
         # True if there are no game entries
         if response == None:
             return
@@ -297,7 +325,11 @@ def upload_save(config, games=None, entry_name_to_modify=None):
     else:
         user_called = False
 
+    operating_sys = get_platform()
     local_path = Path(games[entry_name_to_modify][operating_sys])
+    if not os.path.exists(local_path):
+        print('\n[yellow]The save directory provided for this game is invalid[/]')
+        return
     files_to_upload = [f for f in local_path.rglob('*') if f.is_file() and f.suffix.lower() not in config.skip_extensions]
     if not files_to_upload:
         print('\n[yellow]The save directory for this game contains no files[/]')
@@ -330,9 +362,9 @@ def upload_save(config, games=None, entry_name_to_modify=None):
 
     folder_hash = hash_save_folder(config=config, path=local_path)
     row = {
-        config.required_columns[0]: entry_name_to_modify,
-        config.required_columns[1]: folder_hash,
-        config.required_columns[2]: datetime.now(timezone.utc).isoformat()
+        config.required_columns['game_name']: entry_name_to_modify,
+        config.required_columns['hash']: folder_hash,
+        config.required_columns['updated_at']: datetime.now(timezone.utc).isoformat()
     }
     try:
         client.table(config.table_name).upsert(row).execute()
@@ -342,8 +374,118 @@ def upload_save(config, games=None, entry_name_to_modify=None):
     if user_called:
         print('\n[green]All files successfully uploaded![/]')
 
-def download_save():
-    pass
+# Returns -1 if error
+def list_all_supabase_files(config, client, folder):
+    try:
+        internet_check()
+        full_file_paths = []
+
+        items = client.storage.from_(config.games_bucket).list(folder)
+        for item in items:
+            name = item["name"]
+            full_path = f"{folder}{name}"
+
+            # Check if item is a folder
+            if "." not in name:
+                # Recursive call into subfolder
+                subfiles = list_all_supabase_files(config=config, client=client, folder=f"{full_path}/")
+                full_file_paths.extend(subfiles)
+            else:
+                full_file_paths.append(full_path)
+        return full_file_paths
+    except Exception as e:
+        print(f"[red]ERROR: {e}[/]")
+        return -1
+
+def download_save(config):
+    internet_check()
+    
+    client = supabase.create_client(config.url, config.api_key)
+    
+    operating_sys = get_platform()
+    response = take_entry_input(config=config, keyword="which's save you want to download", print_paths=False)
+    # True if there are no game entries
+    if response == None:
+        return
+    games, entry = response
+
+    source_path = Path(games[entry][operating_sys])
+    if not os.path.exists(source_path):
+        print('[yellow]The save directory provided for this game is invalid[/]')
+        return
+
+    print('[blue]Connecting to Supabase...[/]\n')
+
+    # Loop until all supabase data is validated and updated
+    while True:
+        valid = supabase_validation(config)
+        # Unexpected error
+        if valid == -1:
+            return
+        # Data is completely valid
+        elif valid:
+            break
+
+    response = client.table(config.table_name).select("*").eq(config.required_columns['game_name'], entry).execute()
+    row = response.data[0] if response.data else None
+    if row is None:
+        print(f'[yellow]No table data exists for the game {entry}[/]')
+        return
+    
+    file_list = client.storage.from_(config.games_bucket).list(f"{entry}/")
+    if not file_list:
+        print(f'[yellow]No cloud data exists for the game {entry}[/]')
+        return
+    
+    source_hash = hash_save_folder(config=config, path=source_path)
+    cloud_hash = row[config.required_columns['hash']]
+
+    if source_hash == cloud_hash:
+        choice = Prompt.ask(f"[yellow]Your local and cloud save files are currently the same. Do you still want to continue? (y/n)[/]").strip().lower()
+        while True:
+            if choice == 'y':
+                break
+            elif choice == 'n':
+                return
+            else:
+                choice = Prompt.ask("Incorrect input. Please answer with 'y' or 'n'").strip().lower()
+
+    trash_folder_path = Path(__file__).parent / "Trash"
+    game_folder_path = trash_folder_path / entry
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    backup_path = game_folder_path / timestamp
+
+    print('[blue]Gathering data from Supabase...[/]')
+
+    files_to_download = list_all_supabase_files(config=config, client=client, folder=f"{entry}/")
+    if files_to_download == -1:
+        return
+    
+    move_files(source_path=source_path, backup_path=backup_path)
+
+    try:
+        with Progress() as progress:
+            task = progress.add_task("[cyan]Downloading files...", total=len(files_to_download))
+            
+            for file_path in files_to_download:
+                relative_path = Path(file_path.replace(f"{entry}/", "", 1))
+                destination_path = source_path / relative_path
+
+                progress.update(task, description=f"[cyan]Downloading:[/] {relative_path.name}")
+
+                downloaded_file = client.storage.from_(config.games_bucket).download(file_path)
+                
+                # Making sure destination folders exist
+                destination_path.parent.mkdir(parents=True, exist_ok=True)
+
+                with open(destination_path, 'wb') as f:
+                    f.write(downloaded_file)
+                progress.advance(task)
+    except Exception as e:
+        print(f"[red]ERROR: {e}[/]")
+        return
+
+    print('\n[green]All files successfully downloaded![/]')
 
 def check_save_status():
     pass
@@ -407,7 +549,7 @@ def add_game_entry(config):
 
 
 def remove_game_entry(config):
-    games,entry_name_to_del = take_entry_input(config=config, keyword='delete', print_paths=False)
+    games,entry_name_to_del = take_entry_input(config=config, keyword='to delete', print_paths=False)
     del games[entry_name_to_del]
 
     with open(config.games_file, 'w') as f:
@@ -418,7 +560,7 @@ def remove_game_entry(config):
 
 
 def edit_game_entry(config):
-    games, entry_name_to_edit = take_entry_input(config=config, keyword='edit')
+    games, entry_name_to_edit = take_entry_input(config=config, keyword='to edit')
     input_message = "\n1: Entry name\n2: Windows path\n3: Linux path\n4: Return to main menu\nSelect what to edit"
     
     while True:
@@ -532,8 +674,8 @@ global_default_config = {
 global_config_file = "config.json"
 global_config = load_cfg(config_file=global_config_file, default_config=global_default_config)
 # Checking OS
-operating_sys = get_platform()
-if operating_sys == "unsupported":
+global_operating_sys = get_platform()
+if global_operating_sys == "unsupported":
     print("This program has detected your OS type as Unsupported. Press 'Enter' if you wish to continue")
     input()
 
@@ -548,6 +690,7 @@ while True:
         case 1:
             upload_save(config=global_config)
         case 2:
+            download_save(config=global_config)
             pass
         case 3:
             pass
