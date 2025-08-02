@@ -28,7 +28,7 @@ def regenerate_cfg(config_file, default_config):
         temp_config['supabase']['url'] = url
         temp_config['supabase']['api_key'] = api_key
         json.dump(temp_config, f, indent=4)
-        print('\nConfig file successfully regenerated!')
+        print('\nConfig file successfully regenerated')
         return url, api_key, games_file, skip_extensions, games_bucket, table_name
 
 def load_cfg(config_file, default_config):
@@ -186,7 +186,7 @@ def write_new_path(config, games, entry_name_to_edit, system):
     with open(config.games_file, 'w') as f:
         json.dump(games, f, indent=4)
     
-    print('\nSave path successfully changed!')
+    print('\nSave path successfully changed')
 
 # To input game entry. Returns None if there are no entries
 def take_entry_input(config, keyword, print_paths=True):
@@ -244,7 +244,7 @@ def supabase_validation(config):
         if not bucket_exists:
             print(f'[red]The Supabase games bucket name in your {config.config_file} is incorrect as no bucket exists with this name.'\
                   ' You will be repeatedly prompted to update it until you enter it correctly[/]') 
-            edit_supabase_info(choice='bucket name', config=config)
+            edit_supabase_info(choice='bucket name', config=config, user_called=False)
             return False
         
         # Checks if table exists
@@ -289,90 +289,94 @@ def supabase_validation(config):
         e_str = e_str.lower() if e_str else str(e).lower()
         if e_str == 'invalid url':
             print(f'[red]The Supabase data api url in your {config.config_file} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
-            edit_supabase_info(choice='url', config=config)
+            edit_supabase_info(choice='url', config=config, user_called=False)
             return False
+            
         elif e_str == 'invalid compact jws' or e_str == 'jws protected header is invalid':
             print(f'[red]The Supabase service_role api key in your {config.config_file} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
-            edit_supabase_info(choice='api key', config=config)
+            edit_supabase_info(choice='api key', config=config, user_called=False)
             return False
         elif 'relation' in e_str and 'does not exist' in e_str:
             print(f'[red]The Supabase table name in your {config.config_file} is incorrect as a table with this name does not exist. You will be repeatedly prompted to update it until you enter it correctly[/]') 
-            edit_supabase_info(choice='table name', config=config)
+            edit_supabase_info(choice='table name', config=config, user_called=False)
             return False
         else:
             print(f"[red]ERROR:[/] {e}")
             return -1
-        
-def upload_save(config, games=None, entry_name_to_modify=None):
+
+def loop_supabase_validation(config):
     print('[blue]Connecting to Supabase...[/]\n')
     # Loop until all supabase data is validated and updated
     while True:
         valid = supabase_validation(config)
         # Unexpected error
         if valid == -1:
-            return
+            return valid
         # Data is completely valid
-        elif valid:
+        if valid:
+            return valid   
+
+def remove_supabase_files(config, client, entry_name_to_del):
+    files_to_delete = list_all_supabase_files(config=config, client=client, folder=f"{entry_name_to_del}/")
+    if files_to_delete == -1:
+        return
+    if files_to_delete:
+        internet_check()
+        try:
+            client.storage.from_(config.games_bucket).remove(files_to_delete)
+        except Exception as e:
+            print(f"[red]ERROR: {e}[/]")
+
+def edit_game_name(config, games, entry_name_to_edit):
+    if loop_supabase_validation(config=config) == -1:
+        return
+    while True:
+        # Taking input
+        new_name = Prompt.ask('Enter new entry name').strip()
+        if new_name == '':
+            print('Entry name cannot be empty. Please try again\n')
+        elif new_name in games:
+            print('This entry already exists. Please try again\n')
+        else:
             break
-    client = supabase.create_client(config.url, config.api_key)
-    if games == None and entry_name_to_modify == None:
-        user_called = True
-        response = take_entry_input(config=config, keyword='to upload', print_paths=False)
-        # True if there are no game entries
-        if response == None:
-            return
-        games, entry_name_to_modify = response
-    else:
-        user_called = False
-
-    operating_sys = get_platform()
-    local_path = Path(games[entry_name_to_modify][operating_sys])
-    if not os.path.exists(local_path):
-        print('\n[yellow]The save directory provided for this game is invalid[/]')
-        return
-    files_to_upload = [f for f in local_path.rglob('*') if f.is_file() and f.suffix.lower() not in config.skip_extensions]
-    if not files_to_upload:
-        print('\n[yellow]The save directory for this game contains no files[/]')
-        return
     
-    # Initialising progress bar
-    with Progress() as progress:
-        task = progress.add_task("[cyan]Uploading files...", total=len(files_to_upload))
-        # .rglob recursively goes through every file and directory while maintaining subdirectories
-        for file_path in files_to_upload:
-            # Makes full path into relative path 
-            relative_path = file_path.relative_to(local_path)
-            upload_path = f"{entry_name_to_modify}/{relative_path}".replace('\\', '/')
+    print('\n[blue]Editing local data...[/]')
+    # Copying old items without changing order
+    new_games = {}
+    for key, value in games.items():
+        if key == entry_name_to_edit:
+            new_games[new_name] = value
+        else:
+            new_games[key] = value
+    
+    with open(config.games_file, 'w') as f:
+        json.dump(new_games, f, indent=4)
 
-            # Updating current file name in progress bar
-            progress.update(task, description=f"[cyan]Uploading:[/] {relative_path.name}")
-            
-            # Checking if file already exists in Supabase, if yes then use
-            # update() otherwise use .upload()
-            try:
-                with open(file_path, 'rb') as f:
-                    client.storage.from_(config.games_bucket).update(upload_path, f)
-            except Exception as e:
-                if "Not found" in str(e) or "404" in str(e):
-                    with open(file_path, 'rb') as f2:
-                        client.storage.from_(config.games_bucket).upload(upload_path, f2)
-                else:
-                    raise
-            progress.advance(task)
-
-    folder_hash = hash_save_folder(config=config, path=local_path)
-    row = {
-        config.required_columns['game_name']: entry_name_to_modify,
-        config.required_columns['hash']: folder_hash,
-        config.required_columns['updated_at']: datetime.now(timezone.utc).isoformat()
-    }
+    # Moving Supabase files and deleting old ones
+    # Also editing table data
+    print(f'\n[blue]Editing Supabase data...[/]')
+    client = supabase.create_client(config.url, config.api_key)
+    files_to_move = list_all_supabase_files(config=config, client=client, folder=f"{entry_name_to_edit}/")
+    if files_to_move == -1:
+        return
     try:
-        client.table(config.table_name).upsert(row).execute()
+        upload_save(config=config, games=new_games, entry_name_to_upload=new_name, user_called=False, update_table=False)
     except Exception as e:
-        print(f"[red]Failed to update table data for {entry_name_to_modify}: {e}[/]")
+        print(f'[red]ERROR: {e}[/]')
 
-    if user_called:
-        print('\n[green]All files successfully uploaded![/]')
+    try:
+        remove_supabase_files(config=config, client=client, entry_name_to_del=entry_name_to_edit)
+    except Exception as e:
+        print(f'[red]ERROR: {e}[/]')
+
+    try:
+        client.table(config.table_name).update({
+            config.required_columns['game_name']: new_name
+        }).eq(config.required_columns['game_name'], entry_name_to_edit).execute()
+    except Exception as e:
+        print(f'[red]ERROR: {e}[/]')
+
+    print(f'[green]Entry name successfully changed from {entry_name_to_edit} to {new_name}[/]')
 
 # Returns -1 if error
 def list_all_supabase_files(config, client, folder):
@@ -397,13 +401,80 @@ def list_all_supabase_files(config, client, folder):
         print(f"[red]ERROR: {e}[/]")
         return -1
 
-def download_save(config):
+def upload_save(config, games=None, entry_name_to_upload=None, user_called=True, update_table=True):
+    # loop_supabase_validation() already called in edit_game_name() function if update_table is False
+    if update_table:
+        if loop_supabase_validation(config=config) == -1:
+            return
+    client = supabase.create_client(config.url, config.api_key)
+    if user_called:
+        response = take_entry_input(config=config, keyword='to upload', print_paths=False)
+        # True if there are no game entries
+        if response == None:
+            return
+        games, entry_name_to_upload = response
+
+    operating_sys = get_platform()
+    local_path = Path(games[entry_name_to_upload][operating_sys])
+    if not os.path.exists(local_path):
+        print('\n[yellow]The save directory provided for this game is invalid[/]')
+        return
+    files_to_upload = [f for f in local_path.rglob('*') if f.is_file() and f.suffix.lower() not in config.skip_extensions]
+    if not files_to_upload:
+        print('\n[yellow]The save directory for this game contains no files[/]')
+        return
+    
+    # Initialising progress bar
+    with Progress() as progress:
+        if user_called:
+            task = progress.add_task("[cyan]Uploading files...", total=len(files_to_upload))
+        # .rglob recursively goes through every file and directory while maintaining subdirectories
+        for file_path in files_to_upload:
+            # Makes full path into relative path 
+            relative_path = file_path.relative_to(local_path)
+            upload_path = f"{entry_name_to_upload}/{relative_path}".replace('\\', '/')
+
+            # Updating current file name in progress bar
+            if user_called:
+                progress.update(task, description=f"[cyan]Uploading:[/] {relative_path.name}")
+            
+            # Checking if file already exists in Supabase, if yes then use
+            # update() otherwise use .upload()
+            try:
+                with open(file_path, 'rb') as f:
+                    client.storage.from_(config.games_bucket).update(upload_path, f)
+            except Exception as e:
+                if "Not found" in str(e) or "404" in str(e):
+                    with open(file_path, 'rb') as f2:
+                        client.storage.from_(config.games_bucket).upload(upload_path, f2)
+                else:
+                    raise
+            if user_called:
+                progress.advance(task)
+
+    if update_table:
+        folder_hash = hash_save_folder(config=config, path=local_path)
+        row = {
+            config.required_columns['game_name']: entry_name_to_upload,
+            config.required_columns['hash']: folder_hash,
+            config.required_columns['updated_at']: datetime.now(timezone.utc).isoformat()
+        }
+        try:
+            client.table(config.table_name).upsert(row).execute()
+        except Exception as e:
+            print(f"[red]Failed to update table data for {entry_name_to_upload}: {e}[/]")
+
+    if user_called:
+        print('\n[green]All files successfully uploaded[/]')
+
+def download_save(config, response=None, user_called=True):
     internet_check()
     
     client = supabase.create_client(config.url, config.api_key)
     
     operating_sys = get_platform()
-    response = take_entry_input(config=config, keyword="which's save you want to download", print_paths=False)
+    if user_called:
+        response = take_entry_input(config=config, keyword="which's save you want to download", print_paths=False)
     # True if there are no game entries
     if response == None:
         return
@@ -414,17 +485,10 @@ def download_save(config):
         print('[yellow]The save directory provided for this game is invalid[/]')
         return
 
-    print('[blue]Connecting to Supabase...[/]\n')
+    print('\n[blue]Connecting to Supabase...[/]\n')
 
-    # Loop until all supabase data is validated and updated
-    while True:
-        valid = supabase_validation(config)
-        # Unexpected error
-        if valid == -1:
-            return
-        # Data is completely valid
-        elif valid:
-            break
+    if loop_supabase_validation(config=config) == -1:
+        return
 
     response = client.table(config.table_name).select("*").eq(config.required_columns['game_name'], entry).execute()
     row = response.data[0] if response.data else None
@@ -485,7 +549,7 @@ def download_save(config):
         print(f"[red]ERROR: {e}[/]")
         return
 
-    print('\n[green]All files successfully downloaded![/]')
+    print('\n[green]All files successfully downloaded[/]')
 
 def check_save_status():
     pass
@@ -545,19 +609,40 @@ def add_game_entry(config):
     with open(config.games_file, 'w') as f:
         json.dump(games, f, indent=4)
 
-    print(f"\n{game_name} has been added successfully!")
+    print(f"\n{game_name} has been added successfully")
 
 
-def remove_game_entry(config):
-    games,entry_name_to_del = take_entry_input(config=config, keyword='to delete', print_paths=False)
+def remove_game_entry(config, games, entry_name_to_del):
+    if loop_supabase_validation(config=config) == -1:
+        return
+    games, entry_name_to_del = take_entry_input(config=config, keyword='to delete', print_paths=False)
+
+    choice = Prompt.ask(f"[yellow]Are you sure you want to remove [underline]{entry_name_to_del}[/] (y/n)[/]").strip().lower()
+    while True:
+        if choice == 'y':
+            break
+        elif choice == 'n':
+            return
+        else:
+            choice = Prompt.ask("Incorrect input. Please answer with 'y' or 'n'").strip().lower()
+    
+    print('\n[blue]Removing files from Supabase...[/]')
+    client = supabase.create_client(config.url, config.api_key)
+    remove_supabase_files(config=config, client=client, entry_name_to_del=entry_name_to_del)
+
+    # Removing table data
+    try:
+        client.table(config.table_name).delete().eq(config.required_columns['game_name'], entry_name_to_del).execute()
+    except Exception as e:
+        print(f"[red]ERROR: {e}[/]")
+
+    print('\n[blue]Removing local entry...[/]')
     del games[entry_name_to_del]
 
     with open(config.games_file, 'w') as f:
         json.dump(games, f, indent=4)
 
-    print(f'\n{entry_name_to_del} has been removed from your games')
-
-
+    print(f'\n[green]{entry_name_to_del} has been removed from your games[/]')
 
 def edit_game_entry(config):
     games, entry_name_to_edit = take_entry_input(config=config, keyword='to edit')
@@ -565,37 +650,16 @@ def edit_game_entry(config):
     
     while True:
         choice = int_range_input(input_message, 1, 4)
+        print()
         match choice:
             case 1:
-                while True:
-                    # Taking input
-                    new_name = Prompt.ask('Enter new entry name').strip()
-                    if new_name == '':
-                        print('Entry name cannot be empty. Please try again\n')
-                    elif new_name in games:
-                        print('This entry already exists. Please try again\n')
-                    else:
-                        break
-                
-                # Copying old items without changing order
-                new_games = {}
-                for key, value in games.items():
-                    if key == entry_name_to_edit:
-                        new_games[new_name] = value
-                    else:
-                        new_games[key] = value
-                
-                with open(config.games_file, 'w') as f:
-                    json.dump(new_games, f, indent=4)
-                print(f'\nEntry name successfully changed from {entry_name_to_edit} to {new_name}!')
+                edit_game_name(config=config, games=games, entry_name_to_edit=entry_name_to_edit)
             case 2:
-                write_new_path(config, games, entry_name_to_edit, "windows")
+                write_new_path(config=config, games=games, entry_name_to_edit=entry_name_to_edit, system="windows")
             case 3:
-                write_new_path(config, games, entry_name_to_edit, "linux")
+                write_new_path(config=config, games=games, entry_name_to_edit=entry_name_to_edit, system="linux")
             case 4:
                 return
-            case _:
-                print("Invalid option. Please try again\n")
 
 # print_paths determines whether the games save paths are printed along with the names
 def list_games(config, print_paths=True):
@@ -615,8 +679,7 @@ def list_games(config, print_paths=True):
         if print_paths:
             print()
 
-def edit_supabase_info(config, choice=None):
-    user_called = False if choice else True
+def edit_supabase_info(config, choice=None, user_called=True):
     while True:
         with open(config.config_file, 'r') as f:
             loaded_config = json.load(f)
@@ -650,7 +713,7 @@ def edit_supabase_info(config, choice=None):
             json.dump(loaded_config, f, indent=4)
         if not user_called:
             return
-        print('[green]Data successfully updated![/]\n')
+        print('[green]Data successfully updated[/]\n')
 
 
         
