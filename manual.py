@@ -548,7 +548,7 @@ def print_status(data, count=1):
     console = rich.get_console()
 
     console.print(
-        f"[bold][underline]{count}: {data['game']}[/][/]\n"\
+        f"[bold][underline]{count}: {data['game']}[/]\n"\
         f"[bold]Status:[/] {status_str}\n"\
         f"[bold]Updated at:[/] {data['updated_at']}\n"\
         f"[bold]Cloud last modified:[/] {data['cloud_last_modified']}[/]\n"\
