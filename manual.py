@@ -505,8 +505,6 @@ def get_status(config, client, games, game_choice):
     local_last_modified = datetime.fromisoformat(lm) if lm else None
     local_hash = hash_save_folder(config=config, path=Path(games[game_choice][platform]))
 
-    print(f"{game_choice}\ncloud hash: {cloud_hash}\nlocal hash:{local_hash}")
-
     if cloud_last_modified is None and local_last_modified is None:
         latest = None
     elif cloud_hash != None and cloud_hash == local_hash:
