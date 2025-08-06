@@ -359,7 +359,6 @@ def edit_game_name(config, games, entry_name_to_edit):
     if files_to_move:
         for file_path in files_to_move:
             try:
-                internet_check()
                 file_data = client.storage.from_(config.games_bucket).download(file_path)
                 new_path = file_path.replace(f"{entry_name_to_edit}/", f"{new_name}/")
                 client.storage.from_(config.games_bucket).upload(new_path, file_data)
@@ -417,6 +416,7 @@ def list_all_supabase_files(config, client, folder):
         return -1
 
 def upload_save(config, games=None, entry_name_to_upload=None, user_called=True):
+    internet_check()
     if loop_supabase_validation(config=config) == -1:
         return
     client = supabase.create_client(config.url, config.api_key)
@@ -493,22 +493,25 @@ def get_status(config, client, games, game_choice):
     platform = get_platform()
 
     if not data:
-        updated_at = 'Unavailable'
-        cloud_last_modified = 'Unavailable'
-        cloud_hash = ''
+        updated_at = None
+        cloud_last_modified = None
+        cloud_hash = None
     else:
-        updated_at = datetime.fromisoformat(data[config.required_columns['updated_at']]) if data[config.required_columns['updated_at']] else 'Unavailable'
-        cloud_last_modified = datetime.fromisoformat(data[config.required_columns['last_modified']]) if data[config.required_columns['last_modified']] else 'Unavailable'
-        cloud_hash = data[config.required_columns['hash']] if data[config.required_columns['hash']] else ''
+        updated_at = datetime.fromisoformat(data[config.required_columns['updated_at']]) if data[config.required_columns['updated_at']] else None
+        cloud_last_modified = datetime.fromisoformat(data[config.required_columns['last_modified']]) if data[config.required_columns['last_modified']] else None
+        cloud_hash = data[config.required_columns['hash']] if data[config.required_columns['hash']] else None
 
-    local_last_modified = datetime.fromisoformat(get_last_modified(config=config, folder=Path(games[game_choice][platform])))
+    lm = get_last_modified(config=config, folder=Path(games[game_choice][platform]))
+    local_last_modified = datetime.fromisoformat(lm) if lm else None
     local_hash = hash_save_folder(config=config, path=Path(games[game_choice][platform]))
 
+    print(f"{game_choice}\ncloud hash: {cloud_hash}\nlocal hash:{local_hash}")
+
     if cloud_last_modified is None and local_last_modified is None:
-        latest = 'Unavailable'
-    elif cloud_hash == local_hash:
+        latest = None
+    elif cloud_hash != None and cloud_hash == local_hash:
         latest = 'synced'
-    elif cloud_last_modified == 'Unavailable':
+    elif cloud_last_modified == None:
         latest = 'local'
     elif local_last_modified is None:
         latest = 'cloud'
@@ -526,14 +529,16 @@ def get_status(config, client, games, game_choice):
     }
     
 def print_status(data, count=1):
-    if data['latest'] == 'local':
-        status_str = 'Local save is more recent'
-    elif data['latest'] == 'cloud':
-        status_str = 'Cloud save is more recent'
-    elif data['latest'] == 'synced':
-        status_str = 'Local and Cloud saves are synced'
-    else:
-        status_str = 'Unavailable'
+    for key, val in data.items():
+        if val == None:
+            data[key] = 'Unavailable'
+        elif key == 'latest':
+            if val == 'local':
+                status_str = 'Local save is more recent'
+            elif val == 'cloud':
+                status_str = 'Cloud save is more recent'
+            elif val == 'synced':
+                status_str = 'Local and Cloud saves are synced'
 
     # Format: August 06 2025 at 6:35 PM
     if data['cloud_last_modified'] != 'Unavailable':
@@ -548,16 +553,14 @@ def print_status(data, count=1):
     console = rich.get_console()
 
     console.print(
-        f"[bold][underline]{count}: {data['game']}[/]\n"\
+        f"[bold][underline]{count}: {data['game']}[/][/]\n"\
         f"[bold]Status:[/] {status_str}\n"\
         f"[bold]Updated at:[/] {data['updated_at']}\n"\
-        f"[bold]Cloud last modified:[/] {data['cloud_last_modified']}[/]\n"\
+        f"[bold]Cloud last modified:[/] {data['cloud_last_modified']}\n"\
         f"[bold]Local last modified:[/] {data['local_last_modified']}\n", highlight=False)
 
 def download_save(config, response=None, user_called=True):
     internet_check()
-    
-    client = supabase.create_client(config.url, config.api_key)
     
     operating_sys = get_platform()
     if user_called:
@@ -572,10 +575,10 @@ def download_save(config, response=None, user_called=True):
         print('[yellow]The save directory provided for this game is invalid[/]')
         return
 
-    print('\n[blue]Connecting to Supabase...[/]\n')
-
     if loop_supabase_validation(config=config) == -1:
         return
+    
+    client = supabase.create_client(config.url, config.api_key)
 
     response = client.table(config.table_name).select("*").eq(config.required_columns['game_name'], entry).execute()
     row = response.data[0] if response.data else None
@@ -619,7 +622,6 @@ def download_save(config, response=None, user_called=True):
             task = progress.add_task("[cyan]Downloading files...", total=len(files_to_download))
             
             for file_path in files_to_download:
-                internet_check()
                 relative_path = Path(file_path.replace(f"{entry}/", "", 1))
                 destination_path = source_path / relative_path
 
@@ -746,7 +748,7 @@ def add_game_entry(config):
     print(f"\n{game_name} has been added successfully")
 
 
-def remove_game_entry(config, games, entry_name_to_del):
+def remove_game_entry(config, games=None, entry_name_to_del=None):
     if loop_supabase_validation(config=config) == -1:
         return
     games, entry_name_to_del = take_entry_input(config=config, keyword='to delete', print_paths=False)
