@@ -484,6 +484,14 @@ def upload_save(config, games=None, entry_name_to_upload=None, user_called=True)
         print('\n[green]All files successfully uploaded[/]')
 
 def get_status(config, client, games, game_choice):
+    platform = get_platform()
+    folder = Path(games[game_choice][platform])
+    if not os.path.exists(folder):
+        return {
+            'game': game_choice,
+            'error': '[red]The save directory provided for this game is invalid[/]'
+        }
+        
     response = (
         client.table(config.table_name)
         .select('*')
@@ -491,7 +499,6 @@ def get_status(config, client, games, game_choice):
         .execute()
     )
     data = response.data[0] if response.data else None
-    platform = get_platform()
 
     if not data:
         updated_at = None
@@ -524,10 +531,14 @@ def get_status(config, client, games, game_choice):
         'latest': latest,
         'updated_at': updated_at,
         'cloud_last_modified': cloud_last_modified,
-        'local_last_modified': local_last_modified
+        'local_last_modified': local_last_modified,
+        'error': None
     }
     
 def print_status(data, count=1):
+    if data['error']:
+        print(f"[bold][underline]{count}: {data['game']}[/][/]\n{data['error']}")
+        return
     for key, val in data.items():
         if val == None:
             data[key] = 'Unavailable'
@@ -850,55 +861,55 @@ def edit_supabase_info(config, choice=None, user_called=True):
             return
         print('[green]Data successfully updated[/]\n')
 
+def main():
+    # Rich traceback install
+    install()
 
-        
-# Main
+    default_config = {
+        "supabase": {
+            "url": "",
+            "api_key": "",
+            "games_bucket":"game-saves",
+            "table_name":"saves-data"
+        },
+        "games_file": "games.json",
+        "upload_on_startup": False,
+        "skip_extensions": ['.tmp'],
+    }
 
-# Rich traceback install
-install()
+    config_file = "config.json"
+    config = load_cfg(config_file=config_file, default_config=default_config)
 
-global_default_config = {
-    "supabase": {
-        "url": "",
-        "api_key": "",
-        "games_bucket":"game-saves",
-        "table_name":"saves-data"
-    },
-    "games_file": "games.json",
-    "upload_on_startup": False,
-    "skip_extensions": ['.tmp'],
-}
+    # Checking OS
+    operating_sys = get_platform()
+    if operating_sys == "unsupported":
+        print("This program has detected your OS type as Unsupported. Press 'Enter' if you wish to continue")
+        input()
 
-global_config_file = "config.json"
-global_config = load_cfg(config_file=global_config_file, default_config=global_default_config)
+    # Menu
+    function_input_message = "\n[bold]=== Cloud Saves ===[/]\n1: Upload Save\n2: Download Save\n" \
+    "3: Check Save Status\n4: Add game entry\n5: Remove game entry\n6: Edit game entry\n7: List games\n" \
+    "8: Edit Supabase info\nSelect your function or press 'Ctrl+C' to exit"
+    while True:
+        function_choice = int_range_input(function_input_message, 1, 8)
+        print()
+        match function_choice:
+            case 1:
+                upload_save(config=config)
+            case 2:
+                download_save(config=config)
+            case 3:
+                check_save_status(config=config)
+            case 4:
+                add_game_entry(config=config)
+            case 5:
+                remove_game_entry(config=config)
+            case 6:
+                edit_game_entry(config=config)
+            case 7:
+                list_games(config=config)
+            case 8:
+                edit_supabase_info(config=config)
 
-# Checking OS
-global_operating_sys = get_platform()
-if global_operating_sys == "unsupported":
-    print("This program has detected your OS type as Unsupported. Press 'Enter' if you wish to continue")
-    input()
-
-# Menu
-function_input_message = "\n[bold]=== Cloud Saves ===[/]\n1: Upload Save\n2: Download Save\n" \
-"3: Check Save Status\n4: Add game entry\n5: Remove game entry\n6: Edit game entry\n7: List games\n" \
-"8: Edit Supabase info\nSelect your function or press 'Ctrl+C' to exit"
-while True:
-    function_choice = int_range_input(function_input_message, 1, 8)
-    print()
-    match function_choice:
-        case 1:
-            upload_save(config=global_config)
-        case 2:
-            download_save(config=global_config)
-        case 3:
-            check_save_status(config=global_config)
-        case 4:
-            add_game_entry(config=global_config)
-        case 5:
-            remove_game_entry(config=global_config)
-        case 6:
-            edit_game_entry(config=global_config)
-        case 7:
-            list_games(config=global_config)
-        case 8:
-            edit_supabase_info(config=global_config)
+if __name__ == "__main__":
+    main()
