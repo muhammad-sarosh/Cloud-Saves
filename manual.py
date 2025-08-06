@@ -6,6 +6,7 @@ import shutil
 import supabase
 from pathlib import Path
 import copy
+import rich
 from rich import print
 from rich.traceback import install
 from rich.prompt import Prompt
@@ -89,6 +90,7 @@ def load_cfg(config_file, default_config):
         required_columns={
             'game_name':'game_name',
             'hash':'hash',
+            'last_modified':'last_modified',
             'updated_at':'updated_at'
         }
     )
@@ -243,7 +245,7 @@ def supabase_validation(config):
         bucket_exists = any(b.name == config.games_bucket for b in all_buckets)
         if not bucket_exists:
             print(f'[red]The Supabase games bucket name in your {config.config_file} is incorrect as no bucket exists with this name.'\
-                  ' You will be repeatedly prompted to update it until you enter it correctly[/]') 
+            '[red] You will be repeatedly prompted to update it until you enter it correctly[/]') 
             edit_supabase_info(choice='bucket name', config=config, user_called=False)
             return False
         
@@ -259,7 +261,7 @@ def supabase_validation(config):
                 # Check if type of each column is correct
                 if column == config.required_columns['game_name'] or column == config.required_columns['hash']:
                         client.table(config.table_name).select(column).eq(column, "").limit(1).execute()
-                elif column == config.required_columns['updated_at']:
+                elif column == config.required_columns['last_modified'] or column == config.required_columns['updated_at']:
                         # Giving a datetime query that would only work with a timestamp object
                         client.table(config.table_name).select(column).eq(column, datetime.now() + timedelta(days=1)).limit(1).execute()
             except Exception as e:
@@ -278,8 +280,14 @@ def supabase_validation(config):
                 print(f"[red]The column(s) [underline]{formatted}[/] are missing from your table[/]")
             if len(type_mismatch_columns) > 0:
                 formatted = ", ".join(type_mismatch_columns)
-                print(f"[red]The column(s) [underline]{formatted}[/] have the wrong data type. These are the required data types for each column:[/]\n"\
-                      f"[red]{config.required_columns['game_name']}: text\n{config.required_columns['hash']}: text\n{config.required_columns['updated_at']}: timestamptz[/]")
+                print(f"[red]The column(s) [underline]{formatted}[/] have the wrong data type. These are the required data types for each column:[/]")
+                for col, dtype in {
+                    config.required_columns['game_name']: 'text',
+                    config.required_columns['hash']: 'text',
+                    config.required_columns['last_modified']: 'timestamptz',
+                    config.required_columns['updated_at']: 'timestamptz'
+                }.items():
+                    print(f"[red]{col}: {dtype}[/]")
             print("[red]Please make the required changes and rerun the function[/]")
             return -1
         # Everything checks out
@@ -339,8 +347,39 @@ def edit_game_name(config, games, entry_name_to_edit):
             print('This entry already exists. Please try again\n')
         else:
             break
+
+    # Moving Supabase files and deleting old ones
+    # Also editing table data
+    print(f'\n[blue]Editing Supabase data...[/]')
+    client = supabase.create_client(config.url, config.api_key)
+    files_to_move = list_all_supabase_files(config=config, client=client, folder=f"{entry_name_to_edit}/")
+    if files_to_move == -1:
+        return
+    # Cloud save files found
+    if files_to_move:
+        for file_path in files_to_move:
+            try:
+                internet_check()
+                file_data = client.storage.from_(config.games_bucket).download(file_path)
+                new_path = file_path.replace(f"{entry_name_to_edit}/", f"{new_name}/")
+                client.storage.from_(config.games_bucket).upload(new_path, file_data)
+            except Exception as e:
+                print(f'[red]ERROR: {e}[/]')
+
+        try:
+            remove_supabase_files(config=config, client=client, entry_name_to_del=entry_name_to_edit)
+        except Exception as e:
+            print(f'[red]ERROR: {e}[/]')
+
+        try:
+            client.table(config.table_name).update({
+                config.required_columns['game_name']: new_name
+            }).eq(config.required_columns['game_name'], entry_name_to_edit).execute()
+        except Exception as e:
+            print(f'[red]ERROR: {e}[/]')
     
-    print('\n[blue]Editing local data...[/]')
+        print('\n[blue]Editing local data...[/]')
+
     # Copying old items without changing order
     new_games = {}
     for key, value in games.items():
@@ -352,31 +391,7 @@ def edit_game_name(config, games, entry_name_to_edit):
     with open(config.games_file, 'w') as f:
         json.dump(new_games, f, indent=4)
 
-    # Moving Supabase files and deleting old ones
-    # Also editing table data
-    print(f'\n[blue]Editing Supabase data...[/]')
-    client = supabase.create_client(config.url, config.api_key)
-    files_to_move = list_all_supabase_files(config=config, client=client, folder=f"{entry_name_to_edit}/")
-    if files_to_move == -1:
-        return
-    try:
-        upload_save(config=config, games=new_games, entry_name_to_upload=new_name, user_called=False, update_table=False)
-    except Exception as e:
-        print(f'[red]ERROR: {e}[/]')
-
-    try:
-        remove_supabase_files(config=config, client=client, entry_name_to_del=entry_name_to_edit)
-    except Exception as e:
-        print(f'[red]ERROR: {e}[/]')
-
-    try:
-        client.table(config.table_name).update({
-            config.required_columns['game_name']: new_name
-        }).eq(config.required_columns['game_name'], entry_name_to_edit).execute()
-    except Exception as e:
-        print(f'[red]ERROR: {e}[/]')
-
-    print(f'[green]Entry name successfully changed from {entry_name_to_edit} to {new_name}[/]')
+    print(f'\n[green]Entry name successfully changed from {entry_name_to_edit} to {new_name}[/]')
 
 # Returns -1 if error
 def list_all_supabase_files(config, client, folder):
@@ -401,11 +416,9 @@ def list_all_supabase_files(config, client, folder):
         print(f"[red]ERROR: {e}[/]")
         return -1
 
-def upload_save(config, games=None, entry_name_to_upload=None, user_called=True, update_table=True):
-    # loop_supabase_validation() already called in edit_game_name() function if update_table is False
-    if update_table:
-        if loop_supabase_validation(config=config) == -1:
-            return
+def upload_save(config, games=None, entry_name_to_upload=None, user_called=True):
+    if loop_supabase_validation(config=config) == -1:
+        return
     client = supabase.create_client(config.url, config.api_key)
     if user_called:
         response = take_entry_input(config=config, keyword='to upload', print_paths=False)
@@ -430,6 +443,7 @@ def upload_save(config, games=None, entry_name_to_upload=None, user_called=True,
             task = progress.add_task("[cyan]Uploading files...", total=len(files_to_upload))
         # .rglob recursively goes through every file and directory while maintaining subdirectories
         for file_path in files_to_upload:
+            internet_check()
             # Makes full path into relative path 
             relative_path = file_path.relative_to(local_path)
             upload_path = f"{entry_name_to_upload}/{relative_path}".replace('\\', '/')
@@ -452,20 +466,93 @@ def upload_save(config, games=None, entry_name_to_upload=None, user_called=True,
             if user_called:
                 progress.advance(task)
 
-    if update_table:
-        folder_hash = hash_save_folder(config=config, path=local_path)
-        row = {
-            config.required_columns['game_name']: entry_name_to_upload,
-            config.required_columns['hash']: folder_hash,
-            config.required_columns['updated_at']: datetime.now(timezone.utc).isoformat()
-        }
-        try:
-            client.table(config.table_name).upsert(row).execute()
-        except Exception as e:
-            print(f"[red]Failed to update table data for {entry_name_to_upload}: {e}[/]")
+    folder_hash = hash_save_folder(config=config, path=local_path)
+    last_modified = get_last_modified(config=config, folder=Path(local_path))
+    row = {
+        config.required_columns['game_name']: entry_name_to_upload,
+        config.required_columns['hash']: folder_hash,
+        config.required_columns['last_modified']: last_modified,
+        config.required_columns['updated_at']: datetime.now(timezone.utc).isoformat()
+    }
+    try:
+        client.table(config.table_name).upsert(row).execute()
+    except Exception as e:
+        print(f"[red]Failed to update table data for {entry_name_to_upload}: {e}[/]")
 
     if user_called:
         print('\n[green]All files successfully uploaded[/]')
+
+def get_status(config, client, games, game_choice):
+    response = (
+        client.table(config.table_name)
+        .select('*')
+        .eq(config.required_columns['game_name'], game_choice)
+        .execute()
+    )
+    data = response.data[0] if response.data else None
+    platform = get_platform()
+
+    if not data:
+        updated_at = 'Unavailable'
+        cloud_last_modified = 'Unavailable'
+        cloud_hash = ''
+    else:
+        updated_at = datetime.fromisoformat(data[config.required_columns['updated_at']]) if data[config.required_columns['updated_at']] else 'Unavailable'
+        cloud_last_modified = datetime.fromisoformat(data[config.required_columns['last_modified']]) if data[config.required_columns['last_modified']] else 'Unavailable'
+        cloud_hash = data[config.required_columns['hash']] if data[config.required_columns['hash']] else ''
+
+    local_last_modified = datetime.fromisoformat(get_last_modified(config=config, folder=Path(games[game_choice][platform])))
+    local_hash = hash_save_folder(config=config, path=Path(games[game_choice][platform]))
+
+    if cloud_last_modified is None and local_last_modified is None:
+        latest = 'Unavailable'
+    elif cloud_hash == local_hash:
+        latest = 'synced'
+    elif cloud_last_modified == 'Unavailable':
+        latest = 'local'
+    elif local_last_modified is None:
+        latest = 'cloud'
+    elif cloud_last_modified > local_last_modified:
+        latest = 'cloud'
+    else:
+        latest = 'local'
+
+    return {
+        'game': game_choice,
+        'latest': latest,
+        'updated_at': updated_at,
+        'cloud_last_modified': cloud_last_modified,
+        'local_last_modified': local_last_modified
+    }
+    
+def print_status(data, count=1):
+    if data['latest'] == 'local':
+        status_str = 'Local save is more recent'
+    elif data['latest'] == 'cloud':
+        status_str = 'Cloud save is more recent'
+    elif data['latest'] == 'synced':
+        status_str = 'Local and Cloud saves are synced'
+    else:
+        status_str = 'Unavailable'
+
+    # Format: August 06 2025 at 6:35 PM
+    if data['cloud_last_modified'] != 'Unavailable':
+        data['cloud_last_modified'] = data['cloud_last_modified'].strftime("%B %d %Y at %I:%M %p")
+    
+    if data['updated_at'] != 'Unavailable':
+        data['updated_at'] = data['updated_at'].strftime("%B %d %Y at %I:%M %p")
+    
+    data['local_last_modified'] = data['local_last_modified'].strftime("%B %d %Y at %I:%M %p")
+
+    # Rich's default print wrapper doesnt allow the argument highlight so a console needs to be created
+    console = rich.get_console()
+
+    console.print(
+        f"[bold][underline]{count}: {data['game']}[/][/]\n"\
+        f"[bold]Status:[/] {status_str}\n"\
+        f"[bold]Updated at:[/] {data['updated_at']}\n"\
+        f"[bold]Cloud last modified:[/] {data['cloud_last_modified']}[/]\n"\
+        f"[bold]Local last modified:[/] {data['local_last_modified']}\n", highlight=False)
 
 def download_save(config, response=None, user_called=True):
     internet_check()
@@ -532,6 +619,7 @@ def download_save(config, response=None, user_called=True):
             task = progress.add_task("[cyan]Downloading files...", total=len(files_to_download))
             
             for file_path in files_to_download:
+                internet_check()
                 relative_path = Path(file_path.replace(f"{entry}/", "", 1))
                 destination_path = source_path / relative_path
 
@@ -551,8 +639,54 @@ def download_save(config, response=None, user_called=True):
 
     print('\n[green]All files successfully downloaded[/]')
 
-def check_save_status():
-    pass
+def get_last_modified(config, folder: Path):
+    latest_time = 0
+    for file in folder.rglob("*"):
+        if file.is_file() and file.suffix.lower() not in config.skip_extensions:
+            mtime = file.stat().st_mtime
+            latest_time = max(latest_time, mtime)
+    return datetime.fromtimestamp(latest_time, timezone.utc).isoformat() if latest_time else None
+        
+def check_save_status(config, func_choice=None, game_choice=None, user_called=True):
+    if not is_json_valid(config.games_file):
+        print('You have no game entries')
+        return
+    with open(config.games_file, 'r') as f:
+        games = json.load(f)
+
+    if user_called:
+        input_message = '1: All games\n2: Specific game\n3: Return to main menu\nSelect what you want to check the status of'
+        choice_num = int_range_input(input_message, 1, 3)
+        choice_map = {
+            1: 'all',
+            2: 'specific',
+            3: 'return'
+        }
+        func_choice = choice_map[choice_num]
+
+    if func_choice != 'return':
+        if loop_supabase_validation(config=config) == -1:
+            return
+        client = supabase.create_client(config.url, config.api_key)
+        
+    match func_choice:
+        case 'all':
+            data = [get_status(config=config, client=client, games=games, game_choice=game) for game in games]
+            if not user_called:
+                return data
+            for count, game in enumerate(data, 1):
+                print_status(game, count)
+        case 'specific':
+            if user_called:
+                _, game_choice = take_entry_input(config=config, keyword='to check the save status of', print_paths=False)
+            data = get_status(config=config, client=client, games=games, game_choice=game_choice)
+            if not user_called:
+                return data
+            print()
+            print_status(data)
+        case 'return':
+            return
+    
 
 def add_game_entry(config):
     system = get_platform()
@@ -736,6 +870,7 @@ global_default_config = {
 
 global_config_file = "config.json"
 global_config = load_cfg(config_file=global_config_file, default_config=global_default_config)
+
 # Checking OS
 global_operating_sys = get_platform()
 if global_operating_sys == "unsupported":
@@ -743,8 +878,8 @@ if global_operating_sys == "unsupported":
     input()
 
 # Menu
-function_input_message = "\n[bold]=== Cloud Saves ===[/]\n1: Upload Save(s)\n2: Download Save(s)\n" \
-"3: Check Save(s) Status\n4: Add game entry\n5: Remove game entry\n6: Edit game entry\n7: List games\n" \
+function_input_message = "\n[bold]=== Cloud Saves ===[/]\n1: Upload Save\n2: Download Save\n" \
+"3: Check Save Status\n4: Add game entry\n5: Remove game entry\n6: Edit game entry\n7: List games\n" \
 "8: Edit Supabase info\nSelect your function or press 'Ctrl+C' to exit"
 while True:
     function_choice = int_range_input(function_input_message, 1, 8)
@@ -754,9 +889,8 @@ while True:
             upload_save(config=global_config)
         case 2:
             download_save(config=global_config)
-            pass
         case 3:
-            pass
+            check_save_status(config=global_config)
         case 4:
             add_game_entry(config=global_config)
         case 5:
