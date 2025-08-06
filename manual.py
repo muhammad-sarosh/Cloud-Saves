@@ -399,12 +399,13 @@ def list_all_supabase_files(config, client, folder):
         full_file_paths = []
 
         items = client.storage.from_(config.games_bucket).list(folder)
+
         for item in items:
             name = item["name"]
             full_path = f"{folder}{name}"
 
             # Check if item is a folder
-            if "." not in name:
+            if not item["metadata"]:
                 # Recursive call into subfolder
                 subfiles = list_all_supabase_files(config=config, client=client, folder=f"{full_path}/")
                 full_file_paths.extend(subfiles)
