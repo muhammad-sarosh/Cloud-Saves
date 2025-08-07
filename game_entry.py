@@ -1,0 +1,236 @@
+import os
+import json
+from rich import print
+from rich.prompt import Prompt
+import supabase
+
+def add_game_entry(config):
+    from common import get_platform
+
+    system = get_platform()
+    
+    # Loading file if exists else create new
+    if os.path.exists(config.games_file):
+        try:
+            with open (config.games_file, "r") as f:
+                games = json.load(f)
+        except json.JSONDecodeError:
+            games = {}
+    else:
+        games = {}
+
+    # Getting game name and validating
+    game_name = ''
+    while game_name == '':
+        game_name = Prompt.ask("Enter the name of your game").strip()
+        if game_name == '':
+            print("Game name cannot be empty. Please try again\n")
+
+    if game_name in games:
+        print(f"{game_name} already exists in your list\n")
+        return
+    
+    if system == "windows":
+        secondary_system = "linux"
+    else:
+        secondary_system = "windows"
+
+    # Inputting save paths
+    system_path = Prompt.ask(f"\nEnter the {system} save path for your game").strip()
+    while not os.path.exists(system_path):
+        system_path = Prompt.ask(f"The entered {system} path is not valid. Please try again").strip()
+    
+    choice = Prompt.ask(f"\nDo you want to add the {secondary_system} save path? Please note that if you choose yes, the program will not check if the entered path is valid (y/n)").strip().lower()
+    while True:
+        if choice == 'y':
+            secondary_path = Prompt.ask(f"Enter the {secondary_system} save path for your game").strip()
+            break
+        elif choice == 'n':
+            secondary_path = ''
+            break
+        else:
+            choice = Prompt.ask("Incorrect input. Please answer with 'y' or 'n'").strip().lower()
+
+    # Adding entry to file        
+    games[game_name] = {
+        f"{system}": system_path,
+        f"{secondary_system}": secondary_path 
+    }
+
+    # Writing changes to file
+    with open(config.games_file, 'w') as f:
+        json.dump(games, f, indent=4)
+
+    print(f"\n{game_name} has been added successfully")
+
+def remove_game_entry(config, games=None, entry_name_to_del=None):
+    from supabase_client import loop_supabase_validation, remove_supabase_files
+
+    if loop_supabase_validation(config=config) == -1:
+        return
+    games, entry_name_to_del = take_entry_input(config=config, keyword='to delete', print_paths=False)
+
+    choice = Prompt.ask(f"[yellow]Are you sure you want to remove [underline]{entry_name_to_del}[/] (y/n)[/]").strip().lower()
+    while True:
+        if choice == 'y':
+            break
+        elif choice == 'n':
+            return
+        else:
+            choice = Prompt.ask("Incorrect input. Please answer with 'y' or 'n'").strip().lower()
+    
+    print('\n[blue]Removing files from Supabase...[/]')
+    client = supabase.create_client(config.url, config.api_key)
+    remove_supabase_files(config=config, client=client, entry_name_to_del=entry_name_to_del)
+
+    # Removing table data
+    try:
+        client.table(config.table_name).delete().eq(config.required_columns['game_name'], entry_name_to_del).execute()
+    except Exception as e:
+        print(f"[red]ERROR: {e}[/]")
+
+    print('\n[blue]Removing local entry...[/]')
+    del games[entry_name_to_del]
+
+    with open(config.games_file, 'w') as f:
+        json.dump(games, f, indent=4)
+
+    print(f'\n[green]{entry_name_to_del} has been removed from your games[/]')
+
+def edit_game_entry(config):
+    from ui import int_range_input
+
+    games, entry_name_to_edit = take_entry_input(config=config, keyword='to edit')
+    input_message = "\n1: Entry name\n2: Windows path\n3: Linux path\n4: Return to main menu\nSelect what to edit"
+    
+    while True:
+        choice = int_range_input(input_message, 1, 4)
+        print()
+        match choice:
+            case 1:
+                edit_game_name(config=config, games=games, entry_name_to_edit=entry_name_to_edit)
+            case 2:
+                write_new_path(config=config, games=games, entry_name_to_edit=entry_name_to_edit, system="windows")
+            case 3:
+                write_new_path(config=config, games=games, entry_name_to_edit=entry_name_to_edit, system="linux")
+            case 4:
+                return
+            
+def edit_game_name(config, games, entry_name_to_edit):
+    from supabase_client import loop_supabase_validation, remove_supabase_files, list_all_supabase_files
+
+    if loop_supabase_validation(config=config) == -1:
+        return
+    while True:
+        # Taking input
+        new_name = Prompt.ask('Enter new entry name').strip()
+        if new_name == '':
+            print('Entry name cannot be empty. Please try again\n')
+        elif new_name in games:
+            print('This entry already exists. Please try again\n')
+        else:
+            break
+
+    # Moving Supabase files and deleting old ones
+    # Also editing table data
+    print(f'\n[blue]Editing Supabase data...[/]')
+    client = supabase.create_client(config.url, config.api_key)
+    files_to_move = list_all_supabase_files(config=config, client=client, folder=f"{entry_name_to_edit}/")
+    if files_to_move == -1:
+        return
+    # Cloud save files found
+    if files_to_move:
+        for file_path in files_to_move:
+            try:
+                file_data = client.storage.from_(config.games_bucket).download(file_path)
+                new_path = file_path.replace(f"{entry_name_to_edit}/", f"{new_name}/")
+                client.storage.from_(config.games_bucket).upload(new_path, file_data)
+            except Exception as e:
+                print(f'[red]ERROR: {e}[/]')
+
+        try:
+            remove_supabase_files(config=config, client=client, entry_name_to_del=entry_name_to_edit)
+        except Exception as e:
+            print(f'[red]ERROR: {e}[/]')
+
+        try:
+            client.table(config.table_name).update({
+                config.required_columns['game_name']: new_name
+            }).eq(config.required_columns['game_name'], entry_name_to_edit).execute()
+        except Exception as e:
+            print(f'[red]ERROR: {e}[/]')
+    
+        print('\n[blue]Editing local data...[/]')
+
+    # Copying old items without changing order
+    new_games = {}
+    for key, value in games.items():
+        if key == entry_name_to_edit:
+            new_games[new_name] = value
+        else:
+            new_games[key] = value
+    
+    with open(config.games_file, 'w') as f:
+        json.dump(new_games, f, indent=4)
+
+    print(f'\n[green]Entry name successfully changed from {entry_name_to_edit} to {new_name}[/]')
+
+# To update game entry paths
+def write_new_path(config, games, entry_name_to_edit, system):
+    from common import get_platform
+
+    if get_platform() != system:
+        print(f'WARNING: Since you are currently not on {system} the program will not check to see if the entered {system} path is valid')
+        system_path = Prompt.ask(f"\nEnter the new {system} save path for your game").strip()
+    else:
+        system_path = Prompt.ask(f"\nEnter the new {system} save path for your game").strip()
+        while not os.path.exists(system_path):
+            system_path = Prompt.ask(f"The entered {system} path is not valid. Please try again").strip()
+
+    games[entry_name_to_edit][system] = system_path
+    with open(config.games_file, 'w') as f:
+        json.dump(games, f, indent=4)
+    
+    print('\nSave path successfully changed')
+
+# To input game entry. Returns None if there are no entries
+def take_entry_input(config, keyword, print_paths=True):
+    from file_utils import is_json_valid
+    from ui import int_range_input
+
+    if not is_json_valid(config.games_file):
+        print('You have no game entries')
+        return
+
+    with open(config.games_file, 'r') as f:
+        games = json.load(f)
+
+    # Taking input
+    list_games(config=config, print_paths=print_paths)
+    input_message = f'Enter the entry number {keyword}'
+    entry_num_to_modify = int_range_input(input_message, 1, len(games))
+
+    # Converting name to index number
+    games_keys = list(games)
+    entry_name_to_modify = games_keys[entry_num_to_modify - 1]
+    return games, entry_name_to_modify
+
+# print_paths determines whether the games save paths are printed along with the names
+def list_games(config, print_paths=True):
+    from file_utils import is_json_valid
+
+    if not is_json_valid(config.games_file):
+        print('You have no game entries\n')
+        return
+
+    with open(config.games_file, 'r') as f:
+        games = json.load(f)
+    
+    for count, (game, paths) in enumerate(games.items(), 1):
+        print(f"[bold]{count}: {game}[/]")
+        if print_paths:
+            for system, path in paths.items():
+                if path.strip():
+                    print(f"[underline]{system.capitalize()} Path:[/] [purple]{path}[/]")
+        if print_paths:
+            print()
