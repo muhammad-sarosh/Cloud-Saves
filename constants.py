@@ -9,3 +9,5 @@ default_config = {
         "upload_on_startup": False,
         "skip_extensions": ['.tmp'],
 }
+
+config_file = "config.json"

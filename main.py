@@ -1,7 +1,7 @@
 from rich.traceback import install
 
 from config import load_cfg
-from constants import default_config
+from constants import default_config, config_file
 from game_entry import add_game_entry, remove_game_entry, edit_game_entry, list_games
 from supabase_client import upload_save, download_save
 from status import check_save_status
@@ -9,12 +9,10 @@ from config import edit_supabase_info
 from common import get_platform
 from ui import int_range_input
 
-
 def main():
     # Rich traceback install
     install()
 
-    config_file = "config.json"
     config = load_cfg(config_file=config_file, default_config=default_config)
 
     # Checking OS
