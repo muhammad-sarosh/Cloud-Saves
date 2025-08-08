@@ -66,7 +66,6 @@ def supabase_validation(config):
                 return -1
         return True
     except Exception as e:
-        print(e)
         e_str = getattr(e, "message", None)
         e_str = e_str.lower() if e_str else str(e).lower()
         if e_str == 'invalid url':
@@ -112,11 +111,9 @@ def upload_file(config, client, entry, file_path, local_path, retries=3):
                 client.storage.from_(config.games_bucket).update(upload_path, f)
                 return file_path, None
         except Exception as e:
-            print('condition 1')
             winerr = getattr(e, 'winerror', None)
             # Means this is the first time uploading
             if "Not found" in str(e) or "404" in str(e):
-                print('condition 2')
                 try:
                     with open(file_path, 'rb') as f2:
                         client.storage.from_(config.games_bucket).upload(upload_path, f2)
@@ -125,20 +122,16 @@ def upload_file(config, client, entry, file_path, local_path, retries=3):
                     # Need same error checking  in both cases
                     winerr2 = getattr(e2, 'winerror', None)
                     if winerr2 == 10035:
-                        print('condition 3')
                         time.sleep(0.2)
                         attempt += 1
                         continue
                     return file_path, str(e2)
             # Need same error checking  in both cases
             elif winerr == 10035:
-                print('condition 4')
                 time.sleep(0.2)
                 attempt += 1
                 continue
             else:
-                print('condition 5')
-                print(e)
                 return  file_path, str(e)
     return file_path, "WinError 10035: Failed after retries"
 
@@ -306,7 +299,7 @@ def download_save(config, response=None, user_called=True):
         for future in as_completed(futures):
             filename, error = future.result()
             if error:
-                print(f"[red]Error downloading {filename}: {error}[/]")
+                print(f"[yellow]Error downloading {filename}: {error}[/]")
             progress.advance(task)
     print('\n[green]All files successfully downloaded[/]')
 
