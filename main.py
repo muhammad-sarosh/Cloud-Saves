@@ -1,7 +1,6 @@
 from rich.traceback import install
 
 from config import load_cfg
-from constants import default_config, config_file
 from game_entry import add_game_entry, remove_game_entry, edit_game_entry, list_games
 from supabase_client import upload_save, download_save
 from status import check_save_status
@@ -13,7 +12,7 @@ def main():
     # Rich traceback install
     install()
 
-    config = load_cfg(config_file=config_file, default_config=default_config)
+    config = load_cfg()
 
     # Checking OS
     operating_sys = get_platform()
@@ -36,13 +35,13 @@ def main():
             case 3:
                 check_save_status(config=config)
             case 4:
-                add_game_entry(config=config)
+                add_game_entry()
             case 5:
                 remove_game_entry(config=config)
             case 6:
                 edit_game_entry(config=config)
             case 7:
-                list_games(config=config)
+                list_games()
             case 8:
                 edit_supabase_info(config=config)
 

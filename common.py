@@ -3,9 +3,10 @@ import platform
 # Checks OS Type
 def get_platform():
     system = platform.system()
-    if system == "Windows": return "windows"
-    elif system == "Linux": return "linux"
+    if "windows" in system.lower().strip(): return "windows"
+    elif "linux" in system.lower().strip(): return "linux"
     else: return "unsupported"
+
 
 # Doesn't let the user continue until they have internet access
 def internet_check(host="8.8.8.8", port=53, timeout=3):

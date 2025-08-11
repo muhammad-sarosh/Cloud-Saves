@@ -3,14 +3,17 @@ import json
 from pathlib import Path
 import shutil
 from datetime import datetime, timezone
+import os
 
-def hash_save_folder(config, path:Path):
+def hash_save_folder(path:Path):
+    from constants import SKIP_EXTENSIONS
+
     # Intitialise md5 hash object
     hasher = hashlib.md5()
     # File system ordering can be random, so we use
     # sorted so its the same everytime, imp for hashing
     for file in sorted(path.rglob("*")):
-        if file.is_file() and file.suffix.lower() not in config.skip_extensions:
+        if file.is_file() and file.suffix.lower() not in SKIP_EXTENSIONS:
             # Including file name in hash, ensures hash is affected if files
             # are moved or renamed
             hasher.update(file.name.encode())
@@ -45,10 +48,12 @@ def move_files(source_path, backup_path):
         if folder.is_dir() and not any(folder.iterdir()):
             folder.rmdir()
 
-def get_last_modified(config, folder: Path):
+def get_last_modified(folder: Path):
+    from constants import SKIP_EXTENSIONS
+
     latest_time = 0
     for file in folder.rglob("*"):
-        if file.is_file() and file.suffix.lower() not in config.skip_extensions:
+        if file.is_file() and file.suffix.lower() not in SKIP_EXTENSIONS:
             mtime = file.stat().st_mtime
             latest_time = max(latest_time, mtime)
     return datetime.fromtimestamp(latest_time, timezone.utc).isoformat() if latest_time else None
@@ -62,3 +67,17 @@ def is_json_valid(file):
     # File doesnt exist or is empty/invalid
     except (FileNotFoundError, json.JSONDecodeError):
         return False
+
+def get_games_file():
+    from constants import GAMES_FILE
+
+    # Loading file if exists else create new
+    if os.path.exists(GAMES_FILE):
+        try:
+            with open (GAMES_FILE, "r") as f:
+                games = json.load(f)
+        except json.JSONDecodeError:
+            games = {}
+    else:
+        games = {}
+    return games

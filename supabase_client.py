@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from rich import print
 from rich.prompt import Prompt
@@ -12,6 +12,7 @@ from file_utils import hash_save_folder, get_last_modified, move_files
 from config import edit_supabase_info
 from common import get_platform, internet_check
 from game_entry import take_entry_input
+from constants import CONFIG_FILE
 
 # Returns True if everthing is valid. Returns False and updates info if anything was invalid
 # Returns -1 if unexpected error
@@ -68,16 +69,18 @@ def supabase_validation(config):
     except Exception as e:
         e_str = getattr(e, "message", None)
         e_str = e_str.lower() if e_str else str(e).lower()
+        details = str(getattr(e, "details", "").lower())
+
         if e_str == 'invalid url':
-            print(f'[yellow]The Supabase data api url in your {config.config_file} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
+            print(f'[yellow]The Supabase data api url in your {CONFIG_FILE} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
             edit_supabase_info(choice='url', config=config, user_called=False)
             return False
-        elif e_str == 'invalid compact jws' or e_str == 'jws protected header is invalid':
-            print(f'[yellow]The Supabase service_role api key in your {config.config_file} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
+        elif e_str == 'invalid compact jws' or e_str == 'jws protected header is invalid' or 'invalid api key' in details:
+            print(f'[yellow]The Supabase service_role api key in your {CONFIG_FILE} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
             edit_supabase_info(choice='api key', config=config, user_called=False)
             return False
         elif 'relation' in e_str and 'does not exist' in e_str:
-            print(f'[yellow]The Supabase table name in your {config.config_file} is incorrect as a table with this name does not exist. You will be repeatedly prompted to update it until you enter it correctly[/]') 
+            print(f'[yellow]The Supabase table name in your {CONFIG_FILE} is incorrect as a table with this name does not exist. You will be repeatedly prompted to update it until you enter it correctly[/]') 
             edit_supabase_info(choice='table name', config=config, user_called=False)
             return False
         else:
@@ -136,11 +139,10 @@ def upload_file(config, client, entry, file_path, local_path, retries=3):
     return file_path, "WinError 10035: Failed after retries"
 
 def upload_save(config, games=None, entry=None, user_called=True):
-    internet_check()
+    from constants import SKIP_EXTENSIONS
 
-    client = supabase.create_client(config.url, config.api_key)
     if user_called:
-        response = take_entry_input(config=config, keyword='to upload', print_paths=False)
+        response = take_entry_input(keyword='to upload', print_paths=False)
         # True if there are no game entries
         if response == None:
             return
@@ -148,24 +150,26 @@ def upload_save(config, games=None, entry=None, user_called=True):
 
     if loop_supabase_validation(config=config) == -1:
         return
+    
+    client = supabase.create_client(config.url, config.api_key)
 
     operating_sys = get_platform()
     local_path = Path(games[entry][operating_sys])
     if not os.path.exists(local_path):
         print('\n[yellow]The save directory provided for this game is invalid[/]')
         return
-    files_to_upload = [f for f in local_path.rglob('*') if f.is_file() and f.suffix.lower() not in config.skip_extensions]
+    files_to_upload = [f for f in local_path.rglob('*') if f.is_file() and f.suffix.lower() not in SKIP_EXTENSIONS]
     if not files_to_upload:
         print('\n[yellow]The save directory for this game contains no files[/]')
         return
     
     # Initialising progress bar
     with Progress() as progress:
+        from constants import MAX_UPLOAD_THREADS
         task = progress.add_task("[cyan]Uploading files...", total=len(files_to_upload))
         # How many threads to create, tune as needed
         # Higher max_threads = faster uploads but higher chance for failiure
-        max_threads = 2
-        max_workers = min(max_threads, len(files_to_upload)) 
+        max_workers = min(MAX_UPLOAD_THREADS, len(files_to_upload)) 
         
         # Submit all upload to the thread pool
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -174,15 +178,15 @@ def upload_save(config, games=None, entry=None, user_called=True):
                 for file_path in files_to_upload
             ]
         
-        # As each file finishes, handle progress and errors
-        for future in as_completed(futures):
-            filename, error = future.result()
-            if error:
-                print(f"[red]Error uploading {filename}: {error}[/]")
-            progress.advance(task)
+            # As each file finishes, handle progress and errors
+            for future in as_completed(futures):
+                filename, error = future.result()
+                if error:
+                    print(f"[red]Error uploading {filename}: {error}[/]")
+                progress.advance(task)
 
-    folder_hash = hash_save_folder(config=config, path=local_path)
-    last_modified = get_last_modified(config=config, folder=Path(local_path))
+    folder_hash = hash_save_folder(path=local_path)
+    last_modified = get_last_modified(folder=Path(local_path))
     row = {
         config.required_columns['game_name']: entry,
         config.required_columns['hash']: folder_hash,
@@ -227,7 +231,7 @@ def download_save(config, response=None, user_called=True):
     
     operating_sys = get_platform()
     if user_called:
-        response = take_entry_input(config=config, keyword="which's save you want to download", print_paths=False)
+        response = take_entry_input(keyword="which's save you want to download", print_paths=False)
     # True if there are no game entries
     if response == None:
         return
@@ -254,7 +258,7 @@ def download_save(config, response=None, user_called=True):
         print(f'[yellow]No cloud data exists for the game {entry}[/]')
         return
     
-    source_hash = hash_save_folder(config=config, path=source_path)
+    source_hash = hash_save_folder(path=source_path)
     cloud_hash = row[config.required_columns['hash']]
 
     if source_hash == cloud_hash:
@@ -282,11 +286,9 @@ def download_save(config, response=None, user_called=True):
     move_files(source_path=source_path, backup_path=backup_path)
 
     with Progress() as progress:
+        from constants import MAX_DOWNLOAD_THREADS
         task = progress.add_task("[cyan]Downloading files...", total=len(files_to_download))
-        # How many threads to create, tune as needed
-        # Higher mw = faster downloads but higher chance for failiure
-        max_threads = 4
-        max_workers = min(max_threads, len(files_to_download)) 
+        max_workers = min(MAX_DOWNLOAD_THREADS, len(files_to_download)) 
 
         # Submit all downloads to the thread pool
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -295,12 +297,13 @@ def download_save(config, response=None, user_called=True):
                 for file_path in files_to_download
             ]
         
-        # As each file finishes, handle progress and errors
-        for future in as_completed(futures):
-            filename, error = future.result()
-            if error:
-                print(f"[yellow]Error downloading {filename}: {error}[/]")
-            progress.advance(task)
+            # As each file finishes, handle progress and errors
+            for future in as_completed(futures):
+                filename, error = future.result()
+                if error:
+                    print(f"[yellow]Error downloading {filename}: {error}[/]")
+                progress.advance(task)
+
     print('\n[green]All files successfully downloaded[/]')
 
 def remove_supabase_files(config, client, entry_name_to_del):

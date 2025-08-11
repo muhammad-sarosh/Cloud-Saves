@@ -11,11 +11,12 @@ def check_save_status(config, func_choice=None, game_choice=None, user_called=Tr
     from supabase_client import loop_supabase_validation
     from ui import int_range_input
     from game_entry import take_entry_input
+    from constants import GAMES_FILE
 
-    if not is_json_valid(config.games_file):
+    if not is_json_valid(GAMES_FILE):
         print('You have no game entries')
         return
-    with open(config.games_file, 'r') as f:
+    with open(GAMES_FILE, 'r') as f:
         games = json.load(f)
 
     if user_called:
@@ -42,7 +43,7 @@ def check_save_status(config, func_choice=None, game_choice=None, user_called=Tr
                 print_status(game, count)
         case 'specific':
             if user_called:
-                _, game_choice = take_entry_input(config=config, keyword='to check the save status of', print_paths=False)
+                _, game_choice = take_entry_input(keyword='to check the save status of', print_paths=False)
             data = get_status(config=config, client=client, games=games, game_choice=game_choice)
             if not user_called:
                 return data
@@ -52,7 +53,7 @@ def check_save_status(config, func_choice=None, game_choice=None, user_called=Tr
             return
         
 def get_status(config, client, games, game_choice):
-    from file_utils import hash_save_folder, get_last_modified, is_json_valid
+    from file_utils import hash_save_folder, get_last_modified
     from common import get_platform
 
     platform = get_platform()
@@ -80,9 +81,9 @@ def get_status(config, client, games, game_choice):
         cloud_last_modified = datetime.fromisoformat(data[config.required_columns['last_modified']]) if data[config.required_columns['last_modified']] else None
         cloud_hash = data[config.required_columns['hash']] if data[config.required_columns['hash']] else None
 
-    lm = get_last_modified(config=config, folder=Path(games[game_choice][platform]))
+    lm = get_last_modified(folder=Path(games[game_choice][platform]))
     local_last_modified = datetime.fromisoformat(lm) if lm else None
-    local_hash = hash_save_folder(config=config, path=Path(games[game_choice][platform]))
+    local_hash = hash_save_folder(path=Path(games[game_choice][platform]))
 
     if cloud_last_modified is None and local_last_modified is None:
         latest = None
@@ -108,7 +109,7 @@ def get_status(config, client, games, game_choice):
     
 def print_status(data, count=1):
     if data['error']:
-        print(f"[bold][underline]{count}: {data['game']}[/][/]\n{data['error']}")
+        print(f"[bold][underline]{count}: {data['game']}[/][/]\n{data['error']}\n")
         return
     for key, val in data.items():
         if val == None:

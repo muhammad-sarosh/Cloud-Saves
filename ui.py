@@ -25,12 +25,12 @@ def str_input(input_message):
 
 def get_supabase_info(choice):
     if choice == 'url':
-        input_message = 'Enter your supabase data api url'
+        input_message = '\nEnter your supabase data api url'
     elif choice == 'api key':
-        input_message = 'Enter your supabase service_role api key'
+        input_message = '\nEnter your supabase service_role api key'
     elif choice == 'bucket name':
-        input_message = 'Enter your supabase bucket name'
+        input_message = '\nEnter your supabase bucket name'
     elif choice == 'table name':
-        input_message = 'Enter your supabase database table name'
+        input_message = '\nEnter your supabase database table name'
     data = str_input(input_message)
     return data
