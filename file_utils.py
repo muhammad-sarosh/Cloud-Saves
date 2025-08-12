@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 from datetime import datetime, timezone
 import os
+from common import log
 
 def hash_save_folder(path:Path):
     from constants import SKIP_EXTENSIONS
@@ -77,7 +78,9 @@ def get_games_file():
             with open (GAMES_FILE, "r") as f:
                 games = json.load(f)
         except json.JSONDecodeError:
+            log('Invalid games file, creating new', 'warning')
             games = {}
     else:
+        log('Games file not found, creating new', 'warning')
         games = {}
     return games

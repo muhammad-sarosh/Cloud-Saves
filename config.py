@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 from rich import print
 import copy
+from common import log, is_auto_mode
 
 def load_cfg():
     from ui import get_supabase_info
@@ -31,19 +32,25 @@ def load_cfg():
             # Checking if anything is empty
             changed = False
             if url == '':
-                print(f'The url value in your {CONFIG_FILE} is empty')
-                url = get_supabase_info(choice='url')
-                loaded_config['supabase']['url'] = url
-                changed = True
+                log(f'Url in {CONFIG_FILE} is empty', 'error')       
+                if not is_auto_mode():
+                    print(f'The url value in your {CONFIG_FILE} is empty')
+                    url = get_supabase_info(choice='url')
+                    loaded_config['supabase']['url'] = url
+                    changed = True
             if api_key == '':
-                print(f'The api key value in your {CONFIG_FILE} is empty')
-                api_key = get_supabase_info(choice='api key')
-                loaded_config['supabase']['api_key'] = api_key      
-                changed = True
+                log(f'Api key in {CONFIG_FILE} is empty', 'error')
+                if not is_auto_mode():
+                    print(f'The api key value in your {CONFIG_FILE} is empty')
+                    api_key = get_supabase_info(choice='api key')
+                    loaded_config['supabase']['api_key'] = api_key      
+                    changed = True
             if games_bucket == '':
+                log(f'Games bucket name in {CONFIG_FILE} is empty, setting defaults')
                 loaded_config['supabase']['games_bucket'] = DEFAULT_CONFIG['supabase']['games_bucket']
                 changed = True
             if table_name == '':
+                log(f'Table name in {CONFIG_FILE} is empty, setting defaults')
                 loaded_config['supabase']['table_name'] = DEFAULT_CONFIG['supabase']['table_name']
                 changed = True
             if changed:
@@ -66,6 +73,8 @@ def regenerate_cfg():
     from ui import get_supabase_info
     from constants import DEFAULT_CONFIG, CONFIG_FILE
     
+    log('Config file regenerating', 'warning')
+
     with open(CONFIG_FILE, "w") as f:
         print(f"[yellow]No valid {CONFIG_FILE} found. A new one will be created."\
               "\n(If this is your first time running the program, this is normal)[/]")

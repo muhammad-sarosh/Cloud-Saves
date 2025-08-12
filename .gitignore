@@ -4,4 +4,5 @@ config.json
 windows_env/
 linux_env/
 Trash/
+cloud_saves.log
 test.py

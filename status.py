@@ -61,7 +61,7 @@ def get_status(config, client, games, game_choice):
     if not os.path.exists(folder):
         return {
             'game': game_choice,
-            'error': '[yellow]The save directory provided for this game is invalid[/]'
+            'error': f'[yellow]The save directory provided for {game_choice} game is invalid[/]'
         }
         
     response = (

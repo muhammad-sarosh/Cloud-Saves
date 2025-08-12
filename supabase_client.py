@@ -10,7 +10,7 @@ import time
 
 from file_utils import hash_save_folder, get_last_modified, move_files
 from config import edit_supabase_info
-from common import get_platform, internet_check
+from common import get_platform, internet_check, log, is_auto_mode, send_notification
 from game_entry import take_entry_input
 from constants import CONFIG_FILE
 
@@ -47,11 +47,16 @@ def supabase_validation(config):
 
         if missing_columns:
             print(f"[yellow]The column(s) [underline]{str(missing_columns)}[/] are missing from your supabase table[/]")
+            send_notification(title='Error', message=f"The column(s) {str(missing_columns)} are missing from your supabase table")
+            log(f"The column(s) {str(missing_columns)} are missing from your supabase table", 'error')
+                
             return -1
         
         for column in required_columns_list:
             if actual_types[column] != expected_types[column]:
                 print(f"[yellow]Column '{column}' has wrong type: expected '{expected_types[column]}', got '{actual_types[column]}'[/]")
+                send_notification(title='Error', message=f"Column(s) in your supabase table have the wrong type. Check the log file for more details")
+                log(f"Column '{column}' has wrong type: expected '{expected_types[column]}', got '{actual_types[column]}'", 'error')
                 return -1
 
         # Checks Bucket
@@ -60,8 +65,11 @@ def supabase_validation(config):
         if not bucket_exists:
             # Bucket doesnt exist, attemp to create
             try:
+                log('Supabase bucket not found, attempting to create', 'warning')
                 client.storage.create_bucket(config.games_bucket)
             except Exception as e:
+                log(f'Could not create supabase bucket: {e}', 'error')
+                send_notification(title='Error', message='Could not create supabase bucket, check logs for details')
                 print(f'[yellow]Supabase storage bucket {config.games_bucket} does not exist. [/]'\
                         f'[yellow]The program encountered this error when trying to create it: {e}[/]')
                 return -1
@@ -72,18 +80,35 @@ def supabase_validation(config):
         details = str(getattr(e, "details", "").lower())
 
         if e_str == 'invalid url':
-            print(f'[yellow]The Supabase data api url in your {CONFIG_FILE} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
-            edit_supabase_info(choice='url', config=config, user_called=False)
-            return False
+            send_notification(title='Error', message=f'The supabase data api url in {CONFIG_FILE} is incorrect')
+            log(f'The supabase data api url in {CONFIG_FILE} is incorrect', 'error')
+            if not is_auto_mode():
+                print(f'[yellow]The Supabase data api url in your {CONFIG_FILE} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
+                edit_supabase_info(choice='url', config=config, user_called=False)
+                return False
+            else:
+                return -1
         elif e_str == 'invalid compact jws' or e_str == 'jws protected header is invalid' or 'invalid api key' in details:
-            print(f'[yellow]The Supabase service_role api key in your {CONFIG_FILE} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
-            edit_supabase_info(choice='api key', config=config, user_called=False)
-            return False
+            send_notification(title='Error', message=f'The supabase service role api key in {CONFIG_FILE} is incorrect')
+            log(f'The supabase service role api key in {CONFIG_FILE} is incorrect', 'error')
+            if not is_auto_mode():
+                print(f'[yellow]The Supabase service_role api key in your {CONFIG_FILE} is incorrect. You will be repeatedly prompted to update it until you enter it correctly[/]')
+                edit_supabase_info(choice='api key', config=config, user_called=False)
+                return False
+            else: 
+                return -1
         elif 'relation' in e_str and 'does not exist' in e_str:
-            print(f'[yellow]The Supabase table name in your {CONFIG_FILE} is incorrect as a table with this name does not exist. You will be repeatedly prompted to update it until you enter it correctly[/]') 
-            edit_supabase_info(choice='table name', config=config, user_called=False)
-            return False
+            send_notification(title='Error', message=f'The supabase table name in {CONFIG_FILE} is incorrect')
+            log(f'The supabase table name in {CONFIG_FILE} is incorrect', 'error')
+            if not is_auto_mode():
+                print(f'[yellow]The Supabase table name in your {CONFIG_FILE} is incorrect as a table with this name does not exist. You will be repeatedly prompted to update it until you enter it correctly[/]') 
+                edit_supabase_info(choice='table name', config=config, user_called=False)
+                return False
+            else:
+                return -1
         else:
+            send_notification(title='Error', message='An unexpected error occured while trying to validate supabase. Check logs for details')
+            log(f'Unexpected error when trying to validate supabase: {e}')
             print(f"[red]ERROR:[/] {e}")
             return -1
         
@@ -156,10 +181,13 @@ def upload_save(config, games=None, entry=None, user_called=True):
     operating_sys = get_platform()
     local_path = Path(games[entry][operating_sys])
     if not os.path.exists(local_path):
+        log(f'The save directory for {entry} is invalid', 'error')
+        send_notification(title='Error', message=f'The save direcotry for {entry} is invalid')
         print('\n[yellow]The save directory provided for this game is invalid[/]')
         return
     files_to_upload = [f for f in local_path.rglob('*') if f.is_file() and f.suffix.lower() not in SKIP_EXTENSIONS]
     if not files_to_upload:
+        log(f'The save directory for {entry} contains no files', 'warning')
         print('\n[yellow]The save directory for this game contains no files[/]')
         return
     
@@ -196,6 +224,8 @@ def upload_save(config, games=None, entry=None, user_called=True):
     try:
         client.table(config.table_name).upsert(row).execute()
     except Exception as e:
+        send_notification(title='Error', message=f'Failed to update table data for {entry}. Check logs for details')
+        log(f'Failed to update table data for {entry}: {e}', 'error')
         print(f"[red]Failed to update table data for {entry}: {e}[/]")
 
     print('\n[green]All files successfully uploaded[/]')
@@ -239,6 +269,8 @@ def download_save(config, response=None, user_called=True):
 
     source_path = Path(games[entry][operating_sys])
     if not os.path.exists(source_path):
+        log(f'The save directory for {entry} is invalid', 'error')
+        send_notification(title='Error', message=f'The save direcotry for {entry} is invalid')
         print('[yellow]The save directory provided for this game is invalid[/]')
         return
 
@@ -250,11 +282,15 @@ def download_save(config, response=None, user_called=True):
     response = client.table(config.table_name).select("*").eq(config.required_columns['game_name'], entry).execute()
     row = response.data[0] if response.data else None
     if row is None:
+        send_notification(title='Error', message=f'No table data found for {entry}')
+        log(f'No table data found for {entry}', 'error')
         print(f'[yellow]No table data exists for the game {entry}[/]')
         return
     
     file_list = client.storage.from_(config.games_bucket).list(f"{entry}/")
     if not file_list:
+        send_notification(title='Error', message=f'No cloud data found for {entry}')
+        log(f'No cloud data found for {entry}', 'error')
         print(f'[yellow]No cloud data exists for the game {entry}[/]')
         return
     
@@ -285,6 +321,7 @@ def download_save(config, response=None, user_called=True):
     
     move_files(source_path=source_path, backup_path=backup_path)
 
+    log(f'Downloading files for {entry}')
     with Progress() as progress:
         from constants import MAX_DOWNLOAD_THREADS
         task = progress.add_task("[cyan]Downloading files...", total=len(files_to_download))
@@ -301,7 +338,10 @@ def download_save(config, response=None, user_called=True):
             for future in as_completed(futures):
                 filename, error = future.result()
                 if error:
-                    print(f"[yellow]Error downloading {filename}: {error}[/]")
+                    extra_message = "Try reducing MAX_DOWNLOAD_THREADS" if "blocking" in error.lower() else ""
+                    send_notification(title='Error', message=f'Error downloading {filename} for {entry}. Check logs for details')
+                    log(f'Error downloading {filename} for {entry}: {error}. {extra_message}', 'error')
+                    print(f"[yellow]Error downloading {filename}: {error}. {extra_message}[/]")
                 progress.advance(task)
 
     print('\n[green]All files successfully downloaded[/]')
@@ -338,5 +378,7 @@ def list_all_supabase_files(config, client, folder):
                 full_file_paths.append(full_path)
         return full_file_paths
     except Exception as e:
+        send_notification(title='Error', message='An error occured while retrieving data from supabase. Check logs for details')
+        log(f'Error while retrieving files from supabase: {e}', 'error')
         print(f"[red]ERROR: {e}[/]")
         return -1

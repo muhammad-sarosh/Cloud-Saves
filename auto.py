@@ -2,8 +2,20 @@ import asyncio
 import os
 import psutil
 import supabase
-import subprocess
-import time
+import logging
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+from common import log, send_notification
+
+class GamesFileHandler(FileSystemEventHandler):
+    def __init__(self, reload_callback):
+        self.reload_callback = reload_callback
+
+    def on_modified(self, event):
+        from constants import GAMES_FILE
+        if event.src_path.endswith(GAMES_FILE):
+            self.reload_callback()
 
 def safe_lower(s):
     return (s or "").lower()
@@ -34,63 +46,13 @@ def is_match(target_patterns, proc):
     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
         return False, None
 
-def send_notification(title, message):
-    from constants import APP_NAME, ICON_PATH
-    from common import get_platform
-
-    platform_name = get_platform()
-
-    if platform_name == "linux":
-        # Build notify-send command
-        cmd = [
-            "notify-send",
-            title,
-            message,
-            "--app-name", APP_NAME
-        ]
-        if ICON_PATH:
-            cmd.extend(["--icon", ICON_PATH])
-
-        try:
-            subprocess.run(cmd, check=True)
-        except FileNotFoundError:
-            print("[error] 'notify-send' not found. Install 'libnotify-bin'.")
-        except Exception as e:
-            print(f"[error] Failed to send Linux notification: {e}")
-
-    elif platform_name == "windows":
-        # Use PowerShell toast notification
-        try:
-            # Escape double quotes in message parts
-            title_esc = title.replace('"', '\\"')
-            message_esc = message.replace('"', '\\"')
-            icon_uri = f"file:///{os.path.abspath(ICON_PATH)}" if ICON_PATH else ""
-
-            ps_script = f'''
-            [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null;
-            $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastImageAndText02);
-            $template.SelectSingleNode("//text[@id=1]").InnerText = "{title_esc}";
-            $template.SelectSingleNode("//text[@id=2]").InnerText = "{message_esc}";
-            if ("{icon_uri}" -ne "") {{
-                $template.SelectSingleNode("//image").SetAttribute("src", "{icon_uri}");
-            }}
-            $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("{APP_NAME}");
-            $toast = [Windows.UI.Notifications.ToastNotification]::new($template);
-            $notifier.Show($toast);
-            '''
-            subprocess.run(["powershell", "-Command", ps_script], check=True)
-        except Exception as e:
-            print(f"[error] Failed to send Windows notification: {e}")
-    else:
-        print(f"[warn] Unsupported platform for notifications. Title: {title} | Message: {message}")
-
 def get_target_patterns():
     from common import get_platform
     from file_utils import get_games_file
 
     platform = get_platform()
     if platform == 'unsupported':
-        print('Unsupported platform')
+        log("Unsupported platform. Aborting", 'error')
         return
 
     games = get_games_file()
@@ -114,28 +76,43 @@ async def on_process_start(state, pid, current):
     from config import load_cfg
     from file_utils import get_games_file
     from status import get_status
+    from common import internet_check
 
     game = current[pid]
 
     send_notification(title=game, message='Cloud saves is watching')
+    log(f'Watching {game}')
 
     config = load_cfg()
-
-    # Add check later if required platform path exists
-
     games = get_games_file()
+    
+    internet_check()
 
-    client = supabase.create_client(config.url, config.api_key)
+    try:
+        client = supabase.create_client(config.url, config.api_key)
+    except Exception as e:
+        send_notification(title='Error', message='Failed to create supabase client. Check your supabase url and api key')
+        log(f'Failed to create supaabse client: {e}', 'error')
+        return
 
+    
     data = await asyncio.to_thread(get_status, config=config, client=client, games=games, game_choice=game)
+    if data['error']:
+        send_notification(title=game, message=data['error'])
+        log(data['error'], 'error')
+        return
+    
     latest = data['latest']
 
     if latest != 'synced':
         if latest == 'cloud':
             send_notification(title=game, message='Cloud save is ahead. Please close the game for the save syncing to begin')
+            log('Cloud save is ahead, waiting for game to close')
+        elif latest == 'local':
+            log('Local save is ahead, waiting for game to close')
         state[pid] = {'game': current[pid], 'latest': latest}
     else:
-        print('Already Synced')
+        log(f'{game} save is already in sync')
 
 async def on_process_exit(info):
     from config import load_cfg
@@ -150,73 +127,103 @@ async def on_process_exit(info):
     game = info['game']
 
     send_notification(title=game, message='Save syncing started')
+    log(f'Save syncing for {game} started')
 
-    print(info)
     if info['latest'] == 'cloud':
-        print('Downloading')
+        log(f'Cloud save is ahead, downloading')
         await asyncio.to_thread(download_save, config=config, response=(games, game), user_called=False)
     elif info['latest'] == 'local':
-        print('Uploading')
+        log(f'Local save is ahead, uploading')
         await asyncio.to_thread(upload_save, config=config, games=games, entry=game, user_called=False)
 
     send_notification(title=game, message='Save Synced')
+    log(f'Save for {game} synced')
 
-async def watch_loop(target_patterns, POLL_INTERVAL, RELOAD_INTERVAL):
-    print("[info] Watching for:", list(target_patterns.values()))
+async def watch_loop():
+    from constants import POLL_INTERVAL
+
+    # Configuring logger
+    logging.basicConfig(
+        filename='cloud_saves.log',
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S' 
+    )
+
+    # Setting env var for logging
+    os.environ['AUTO_MODE'] = "1"
+
+    target_patterns = get_target_patterns()
+    log(f"Watching for: {list(target_patterns.values())}")
+
     seen = {}  # {pid: game}
     state = {} # {pid: {game: game, latest: latest}}
     start_tasks = {} # {pid: asyncio task}
-    last_reload = time.time()
-    while True: 
-        if time.time() - last_reload >= RELOAD_INTERVAL:
-            target_patterns = get_target_patterns()
-            last_reload = time.time()
-        
-        current = snapshot_matches(target_patterns=target_patterns)
 
-        started_pids = current.keys() - seen.keys()
-        ended_pids   = seen.keys() - current.keys()
+    # Watchdog setup
+    reload_flag = {'reload': False}
+    def reload_callback():
+        reload_flag['reload'] = True
 
-        for pid in started_pids:
-            # Checking if on_process_start for this task is done if it was already running
-            task = start_tasks.pop(pid, None)
-            if task is not None and not task.done():
-                try:
-                    await task
-                except:
-                    continue
-            # If we're not already waiting for the game to close, then add it to the list
-            # of games that we wanna wait for
-            if pid not in state.keys():
-                start_tasks[pid] = asyncio.create_task(on_process_start(state=state, pid=pid, current=current))
+    observer = Observer()
+    handler = GamesFileHandler(reload_callback)
+    observer.schedule(handler, path=os.getcwd(), recursive=False)
+    observer.start()
 
-        for pid in ended_pids:
-            # Check if on_process_start for that task is done
-            task = start_tasks.pop(pid, None)
-            if task is not None and not task.done():
-                try:
-                    await task
-                except:
-                    continue
-            
-            # state data for that task will now be availible if conditions were met
-            if pid in state.keys():
-                info = state[pid]
-                state.pop(pid, None)
-                asyncio.create_task(on_process_exit(info=info))
+    try:
+        while True:
+            # Reload game entries
+            if reload_flag['reload']:
+                target_patterns = get_target_patterns()
+                log(f"Reloaded target patterns: {list(target_patterns.values())}")
+                reload_flag['reload'] = False
+                
+            if target_patterns:
+                current = snapshot_matches(target_patterns=target_patterns)
 
-        seen = current
-        await asyncio.sleep(POLL_INTERVAL)
+                started_pids = current.keys() - seen.keys()
+                ended_pids   = seen.keys() - current.keys()
+
+                for pid in started_pids:
+                    # Checking if on_process_start for this task is done if it was already running
+                    task = start_tasks.pop(pid, None)
+                    if task is not None and not task.done():
+                        try:
+                            await task
+                        except:
+                            continue
+                    # If we're not already waiting for the game to close, then add it to the list
+                    # of games that we wanna wait for
+                    if pid not in state.keys():
+                        start_tasks[pid] = asyncio.create_task(on_process_start(state=state, pid=pid, current=current))
+
+                for pid in ended_pids:
+                    # Check if on_process_start for that task is done
+                    task = start_tasks.pop(pid, None)
+                    if task is not None and not task.done():
+                        try:
+                            await task
+                        except:
+                            continue
+                    
+                    # state data for that task will now be availible if conditions were met
+                    if pid in state.keys():
+                        info = state[pid]
+                        state.pop(pid, None)
+                        asyncio.create_task(on_process_exit(info=info))
+
+                seen = current
+                await asyncio.sleep(POLL_INTERVAL)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        observer.stop()
+        observer.join()
+    
 
 def main():
-    from constants import POLL_INTERVAL, RELOAD_INTERVAL
-    try:
-        target_patterns = get_target_patterns()
-        if target_patterns:
-            asyncio.run(watch_loop(target_patterns=target_patterns, POLL_INTERVAL=POLL_INTERVAL, RELOAD_INTERVAL=RELOAD_INTERVAL))
-    except KeyboardInterrupt:
-        print("\n[info] Stopped.")
+    asyncio.run(watch_loop())
+
 
 if __name__ == "__main__":
     main()
-    #send_notification('Testing', 'Test successful')
