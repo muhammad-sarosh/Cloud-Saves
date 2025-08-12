@@ -3,6 +3,7 @@ import os
 import psutil
 import supabase
 import subprocess
+import time
 
 def safe_lower(s):
     return (s or "").lower()
@@ -160,12 +161,17 @@ async def on_process_exit(info):
 
     send_notification(title=game, message='Save Synced')
 
-async def watch_loop(target_patterns, POLL_INTERVAL):
+async def watch_loop(target_patterns, POLL_INTERVAL, RELOAD_INTERVAL):
     print("[info] Watching for:", list(target_patterns.values()))
     seen = {}  # {pid: game}
     state = {} # {pid: {game: game, latest: latest}}
     start_tasks = {} # {pid: asyncio task}
+    last_reload = time.time()
     while True: 
+        if time.time() - last_reload >= RELOAD_INTERVAL:
+            target_patterns = get_target_patterns()
+            last_reload = time.time()
+        
         current = snapshot_matches(target_patterns=target_patterns)
 
         started_pids = current.keys() - seen.keys()
@@ -203,11 +209,11 @@ async def watch_loop(target_patterns, POLL_INTERVAL):
         await asyncio.sleep(POLL_INTERVAL)
 
 def main():
-    from constants import POLL_INTERVAL
+    from constants import POLL_INTERVAL, RELOAD_INTERVAL
     try:
         target_patterns = get_target_patterns()
         if target_patterns:
-            asyncio.run(watch_loop(target_patterns=target_patterns, POLL_INTERVAL=POLL_INTERVAL))
+            asyncio.run(watch_loop(target_patterns=target_patterns, POLL_INTERVAL=POLL_INTERVAL, RELOAD_INTERVAL=RELOAD_INTERVAL))
     except KeyboardInterrupt:
         print("\n[info] Stopped.")
 
