@@ -43,7 +43,7 @@ def check_save_status(config, func_choice=None, game_choice=None, user_called=Tr
                 print_status(game, count)
         case 'specific':
             if user_called:
-                _, game_choice = take_entry_input(keyword='to check the save status of', print_paths=False)
+                _, game_choice = take_entry_input(keyword='to check the save status of', extra_info=False)
             data = get_status(config=config, client=client, games=games, game_choice=game_choice)
             if not user_called:
                 return data
@@ -57,11 +57,12 @@ def get_status(config, client, games, game_choice):
     from common import get_platform
 
     platform = get_platform()
-    folder = Path(games[game_choice][platform])
-    if not os.path.exists(folder):
+    folder = Path(games[game_choice][f"{platform}_path"])
+    # Need to check for empty "" path entry too as that still forms a valid path to the current directory
+    if not games[game_choice][f"{platform}_path"] or not os.path.exists(folder):
         return {
             'game': game_choice,
-            'error': f'[yellow]The save directory provided for {game_choice} game is invalid[/]'
+            'error': 'The save directory provided for this game is invalid'
         }
         
     response = (
@@ -81,9 +82,9 @@ def get_status(config, client, games, game_choice):
         cloud_last_modified = datetime.fromisoformat(data[config.required_columns['last_modified']]) if data[config.required_columns['last_modified']] else None
         cloud_hash = data[config.required_columns['hash']] if data[config.required_columns['hash']] else None
 
-    lm = get_last_modified(folder=Path(games[game_choice][platform]))
+    lm = get_last_modified(folder=Path(games[game_choice][f"{platform}_path"]))
     local_last_modified = datetime.fromisoformat(lm) if lm else None
-    local_hash = hash_save_folder(path=Path(games[game_choice][platform]))
+    local_hash = hash_save_folder(path=Path(games[game_choice][f"{platform}_path"]))
 
     if cloud_last_modified is None and local_last_modified is None:
         latest = None
@@ -109,7 +110,7 @@ def get_status(config, client, games, game_choice):
     
 def print_status(data, count=1):
     if data['error']:
-        print(f"[bold][underline]{count}: {data['game']}[/][/]\n{data['error']}\n")
+        print(f"[bold][underline]{count}: {data['game']}[/][/]\n[yellow]{data['error']}[/]\n")
         return
     for key, val in data.items():
         if val == None:

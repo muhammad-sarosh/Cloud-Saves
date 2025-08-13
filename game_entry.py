@@ -56,9 +56,9 @@ def add_game_entry():
 
     # Adding entry to file        
     games[game_name] = {
-        f"{primary_system}": system_path,
+        f"{primary_system}_path": system_path,
         f"{primary_system}_process": primary_process,
-        f"{secondary_system}": secondary_path,
+        f"{secondary_system}_path": secondary_path,
         f"{secondary_system}_process": secondary_process
     }
 
@@ -74,7 +74,7 @@ def remove_game_entry(config, games=None, entry_name_to_del=None):
 
     if loop_supabase_validation(config=config) == -1:
         return
-    games, entry_name_to_del = take_entry_input(keyword='to delete', print_paths=False)
+    games, entry_name_to_del = take_entry_input(keyword='to delete', extra_info=False)
 
     choice = Prompt.ask(f"[yellow]Are you sure you want to remove [underline]{entry_name_to_del}[/] (y/n)[/]").strip().lower()
     while True:
@@ -128,13 +128,13 @@ def edit_game_entry(config):
             case 1:
                 edit_game_name(config=config, games=games, entry_name_to_edit=entry_name_to_edit)
             case 2:
-                write_new_path(config=config, games=games, entry_name_to_edit=entry_name_to_edit, system="windows")
+                write_new_path(games=games, entry_name_to_edit=entry_name_to_edit, system="windows")
             case 3:
                 edit_entry_process(games=games, entry_name_to_edit=entry_name_to_edit, system="windows")
             case 4:
                 write_new_path(games=games, entry_name_to_edit=entry_name_to_edit, system="linux")
             case 5:
-                edit_entry_process(entry_name_to_edit=entry_name_to_edit, system="linux")
+                edit_entry_process(games=games, entry_name_to_edit=entry_name_to_edit, system="linux")
             case 6:
                 return
             
@@ -211,14 +211,14 @@ def write_new_path(games, entry_name_to_edit, system):
         while not os.path.exists(system_path):
             system_path = Prompt.ask(f"The entered {system} path is not valid. Please try again").strip()
 
-    games[entry_name_to_edit][system] = system_path
+    games[entry_name_to_edit][f"{system}_path"] = system_path
     with open(GAMES_FILE, 'w') as f:
         json.dump(games, f, indent=4)
     
     print('\nSave path successfully changed')
 
 # To input game entry. Returns None if there are no entries
-def take_entry_input(keyword, print_paths=True):
+def take_entry_input(keyword, extra_info=True):
     from file_utils import is_json_valid
     from ui import int_range_input
     from constants import GAMES_FILE
@@ -231,7 +231,7 @@ def take_entry_input(keyword, print_paths=True):
         games = json.load(f)
 
     # Taking input
-    list_games(print_paths=print_paths)
+    list_games(extra_info=extra_info)
     input_message = f'Enter the entry number {keyword}'
     entry_num_to_modify = int_range_input(input_message, 1, len(games))
 
@@ -240,8 +240,20 @@ def take_entry_input(keyword, print_paths=True):
     entry_name_to_modify = games_keys[entry_num_to_modify - 1]
     return games, entry_name_to_modify
 
+def get_key_str(key):
+    if key == 'windows_process':
+        return 'Windows Process'
+    elif key == 'linux_process':
+        return 'Linux Process'
+    elif key == 'windows_path':
+        return 'Windows Path'
+    elif key == 'linux_path':
+        return 'Linux Path'
+    else:
+        return key.capitalize()
+
 # print_paths determines whether the games save paths are printed along with the names
-def list_games(print_paths=True):
+def list_games(extra_info=True):
     from file_utils import is_json_valid
     from constants import GAMES_FILE
 
@@ -252,11 +264,12 @@ def list_games(print_paths=True):
     with open(GAMES_FILE, 'r') as f:
         games = json.load(f)
     
-    for count, (game, paths) in enumerate(games.items(), 1):
+    for count, (game, data) in enumerate(games.items(), 1):
         print(f"[bold]{count}: {game}[/]")
-        if print_paths:
-            for system, path in paths.items():
-                if path.strip():
-                    print(f"[underline]{system.capitalize()} Path:[/] [purple]{path}[/]")
-        if print_paths:
+        if extra_info:
+            for key, val in data.items():
+                if val.strip():
+                    # print(f"[underline]{key.capitalize()} Path:[/] [purple]{val}[/]")
+                    print(f"[underline]{get_key_str(key=key)}:[/] [purple]{val}[/]")
+        if extra_info:
             print()

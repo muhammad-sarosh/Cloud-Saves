@@ -102,7 +102,7 @@ async def on_process_start(state, pid, current):
     data = await asyncio.to_thread(get_status, config=config, client=client, games=games, game_choice=game)
     if data['error']:
         send_notification(title=game, message=data['error'])
-        log(data['error'], 'error')
+        log(f'Error when checking sync status for {game}: {data['error']}', 'error')
         return
     
     latest = data['latest']
@@ -113,6 +113,10 @@ async def on_process_start(state, pid, current):
             log('Cloud save is ahead, waiting for game to close')
         elif latest == 'local':
             log('Local save is ahead, waiting for game to close')
+        else:
+            send_notification(title='Error', message=f'Unable to determine sync status for {game}')
+            log(f'Unable to determine sync status for {game}', 'error')
+            return
         state[pid] = {'game': current[pid], 'latest': latest}
     else:
         log(f'{game} save is already in sync')
@@ -134,7 +138,7 @@ async def on_process_exit(info):
 
     if info['latest'] == 'cloud':
         log(f'Downloading data for {game}...')
-        success = await asyncio.to_thread(download_save, config=config, response=(games, game), user_called=False)
+        success = await asyncio.to_thread(download_save, config=config, games=games, entry=game, user_called=False)
     elif info['latest'] == 'local':
         log(f'Uploading data for {game}...')
         success = await asyncio.to_thread(upload_save, config=config, games=games, entry=game, user_called=False)

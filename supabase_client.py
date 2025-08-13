@@ -7,6 +7,7 @@ from rich.progress import Progress
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import supabase
 import time
+import json
 
 from file_utils import hash_save_folder, get_last_modified, move_files
 from config import edit_supabase_info
@@ -163,27 +164,28 @@ def upload_file(config, client, entry, file_path, local_path, retries=3):
                 return  file_path, str(e)
     return file_path, "WinError 10035: Failed after retries"
 
-def upload_save(config, games=None, entry=None, user_called=True):
+def upload_save(config, games=None, entry=None, user_called=True, validate_supabase=True):
     from constants import SKIP_EXTENSIONS
-
+    
     if user_called:
-        response = take_entry_input(keyword='to upload', print_paths=False)
+        response = take_entry_input(keyword='to upload', extra_info=False)
         # True if there are no game entries
         if response == None:
             return
         games, entry = response
 
-    if loop_supabase_validation(config=config) == -1:
-        return
+    if validate_supabase:
+        if loop_supabase_validation(config=config) == -1:
+            return
     
     client = supabase.create_client(config.url, config.api_key)
 
     operating_sys = get_platform()
 
-    local_path = Path(games[entry][operating_sys])
+    local_path = Path(games[entry][f"{operating_sys}_path"])
     # Need to check for empty "" path entry too as that still forms a valid path to the current directory
-    if not games[entry][operating_sys] or not os.path.exists(local_path):
-        log(f'The save directory for {entry} is invalid: {games[entry][operating_sys]}', 'error')
+    if not games[entry][f"{operating_sys}_path"] or not os.path.exists(local_path):
+        log(f'The save directory for {entry} is invalid: {games[entry][f"{operating_sys}_path"]}', 'error')
         send_notification(title='Error', message=f'The save direcotry for {entry} is invalid. Check logs for details')
         print('\n[yellow]The save directory provided for this game is invalid[/]')
         return
@@ -259,26 +261,28 @@ def download_file(config, client, entry, file_path, source_path, retries=3):
             return relative_path.name, str(e)
     return relative_path.name, 'WinError 10035: Failed after retries'
 
-def download_save(config, response=None, user_called=True):
+def download_save(config, games=None, entry=None, user_called=True, validate_supabase=True):
     internet_check()
     
     operating_sys = get_platform()
-    if user_called:
-        response = take_entry_input(keyword="which's save you want to download", print_paths=False)
-    # True if there are no game entries
-    if response == None:
-        return
-    games, entry = response
 
-    source_path = Path(games[entry][operating_sys])
-    if not games[entry][operating_sys] or not os.path.exists(source_path):
-        log(f'The save directory for {entry} is invalid: {games[entry][operating_sys]}', 'error')
+    if user_called:
+        response = take_entry_input(keyword="which's save you want to download", extra_info=False)
+    # True if there are no game entries
+        if response == None:
+            return
+        games, entry = response
+
+    source_path = Path(games[entry][f"{operating_sys}_path"])
+    if not games[entry][f"{operating_sys}_path"] or not os.path.exists(source_path):
+        log(f'The save directory for {entry} is invalid: {games[entry][f"{operating_sys}_path"]}', 'error')
         send_notification(title='Error', message=f'The save direcotry for {entry} is invalid. Check logs for details')
         print('[yellow]The save directory provided for this game is invalid[/]')
         return
 
-    if loop_supabase_validation(config=config) == -1:
-        return
+    if validate_supabase:
+        if loop_supabase_validation(config=config) == -1:
+            return
     
     client = supabase.create_client(config.url, config.api_key)
 
@@ -349,6 +353,73 @@ def download_save(config, response=None, user_called=True):
 
     print('\n[green]All files successfully downloaded[/]')
     return True # So auto.py can detect success
+
+def sync_single_save(config, client, games, game_choice):
+    from status import get_status
+
+    data = get_status(config=config, client=client, games=games, game_choice=game_choice)
+    if data['error']:
+        print(f'[yellow]{data['error']}[/]')
+        return
+    latest = data['latest']
+
+    if latest == 'synced':
+        print(f'[green]The save for this game is already synced[/]')
+        return
+    elif latest == 'cloud':
+        print(f'[yellow]Cloud save ahead\n[/]')
+        download_save(config=config, games=games, entry=game_choice, user_called=False, validate_supabase=False)
+    elif latest == 'local':
+        print(f'[yellow]Local save ahead[/]')
+        upload_save(config=config, games=games, entry=game_choice, user_called=False, validate_supabase=False)
+    else:
+        print(f'[yellow]Unable to determine sync status for {game_choice}[/]')
+        return
+
+def sync_save(config):
+    from file_utils import is_json_valid
+    from constants import GAMES_FILE
+    from ui import int_range_input
+
+    if not is_json_valid(GAMES_FILE):
+        print('You have no game entries')
+        return
+
+    input_message = '1: All games\n2: Specific game\n3: Return to main menu\nSelect what you want to sync the save of'
+    choice_num = int_range_input(input_message, 1, 3)
+    print()
+    choice_map = {
+        1: 'all',
+        2: 'specific',
+        3: 'return'
+    }
+    func_choice = choice_map[choice_num]
+    
+    match func_choice:
+        case 'all':
+            with open(GAMES_FILE, 'r') as f:
+                games = json.load(f)
+            game_names = list(games.keys())
+
+            if loop_supabase_validation(config=config) == -1:
+                return
+            client = supabase.create_client(config.url, config.api_key)
+
+            for count, game in enumerate(game_names, 1):
+                print()
+                print(f'[bold][underline]{count}: {game}[/][/]')
+                sync_single_save(config=config, client=client, games=games, game_choice=game)
+        case 'specific':
+            response = take_entry_input(keyword='to sync the save of', extra_info=False)
+            games, game = response
+
+            if loop_supabase_validation(config=config) == -1:
+                return
+            client = supabase.create_client(config.url, config.api_key)
+
+            sync_single_save(config=config, client=client, games=games, game_choice=game)
+        case 'return':
+            return
 
 def remove_supabase_files(config, client, entry_name_to_del):
     files_to_delete = list_all_supabase_files(config=config, client=client, folder=f"{entry_name_to_del}/")
