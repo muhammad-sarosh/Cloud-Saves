@@ -7,6 +7,7 @@ from status import check_save_status
 from config import edit_supabase_info
 from common import get_platform
 from ui import int_range_input
+from file_utils import clear_trash
 
 def main():
     # Rich traceback install
@@ -23,9 +24,9 @@ def main():
     # Menu
     function_input_message = "\n[bold]=== Cloud Saves ===[/]\n1: Sync Save\n2: Upload Save\n3: Download Save\n" \
     "4: Check Save Status\n5: Add game entry\n6: Remove game entry\n7: Edit game entry\n8: List games\n" \
-    "9: Edit Supabase info\nSelect your function or press 'Ctrl+C' to exit"
+    "9: Clear Trash\n10: Edit Supabase info\nSelect your function or press 'Ctrl+C' to exit"
     while True:
-        function_choice = int_range_input(function_input_message, 1, 9)
+        function_choice = int_range_input(function_input_message, 1, 10)
         print()
         match function_choice:
             case 1:
@@ -45,6 +46,8 @@ def main():
             case 8:
                 list_games()
             case 9:
+                clear_trash()
+            case 10:
                 edit_supabase_info(config=config)
 
 if __name__ == "__main__":

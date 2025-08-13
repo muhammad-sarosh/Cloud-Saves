@@ -182,13 +182,14 @@ def upload_save(config, games=None, entry=None, user_called=True, validate_supab
 
     operating_sys = get_platform()
 
-    local_path = Path(games[entry][f"{operating_sys}_path"])
+    local_path = games[entry][f"{operating_sys}_path"]
     # Need to check for empty "" path entry too as that still forms a valid path to the current directory
-    if not games[entry][f"{operating_sys}_path"] or not os.path.exists(local_path):
+    if not local_path or not os.path.exists(local_path):
         log(f'The save directory for {entry} is invalid: {games[entry][f"{operating_sys}_path"]}', 'error')
         send_notification(title='Error', message=f'The save direcotry for {entry} is invalid. Check logs for details')
         print('\n[yellow]The save directory provided for this game is invalid[/]')
         return
+    local_path = Path(local_path)
     files_to_upload = [f for f in local_path.rglob('*') if f.is_file() and f.suffix.lower() not in SKIP_EXTENSIONS]
     if not files_to_upload:
         log(f'The save directory for {entry} contains no files', 'warning')
@@ -273,12 +274,13 @@ def download_save(config, games=None, entry=None, user_called=True, validate_sup
             return
         games, entry = response
 
-    source_path = Path(games[entry][f"{operating_sys}_path"])
-    if not games[entry][f"{operating_sys}_path"] or not os.path.exists(source_path):
+    source_path = games[entry][f"{operating_sys}_path"]
+    if not source_path or not os.path.exists(source_path):
         log(f'The save directory for {entry} is invalid: {games[entry][f"{operating_sys}_path"]}', 'error')
         send_notification(title='Error', message=f'The save direcotry for {entry} is invalid. Check logs for details')
         print('[yellow]The save directory provided for this game is invalid[/]')
         return
+    source_path = Path(source_path)
 
     if validate_supabase:
         if loop_supabase_validation(config=config) == -1:

@@ -148,11 +148,14 @@ async def on_process_exit(info):
         log(f'Save for {game} synced')
 
 async def watch_loop():
-    from constants import POLL_INTERVAL, LOG_FILE_NAME, MAX_LOG_BYTES, LOG_BACKUP_COUNT
+    from constants import POLL_INTERVAL, LOG_FILE_NAME, LOG_FOLDER, MAX_LOG_BYTES, LOG_BACKUP_COUNT, CLEAR_TRASH
     
     # Logger setup
+    if LOG_FOLDER:
+        os.makedirs(LOG_FOLDER, exist_ok=True)
+
     handler = RotatingFileHandler(
-        filename=LOG_FILE_NAME,
+        filename=os.path.join(LOG_FOLDER, LOG_FILE_NAME),
         maxBytes=MAX_LOG_BYTES,
         backupCount=LOG_BACKUP_COUNT
     )
@@ -171,6 +174,12 @@ async def watch_loop():
 
     # Setting env var for logging
     os.environ['AUTO_MODE'] = "1"
+
+    # Clear trash if enabled
+    if CLEAR_TRASH:
+        from file_utils import clear_trash
+        clear_trash(user_called=False)
+        log("Cleared excess trash backups")
 
     target_patterns = get_target_patterns()
     log(f"Watching for: {list(target_patterns.values())}")

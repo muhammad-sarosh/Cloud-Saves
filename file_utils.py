@@ -4,7 +4,10 @@ from pathlib import Path
 import shutil
 from datetime import datetime, timezone
 import os
+from rich import print
 from common import log
+from ui import int_range_input
+from game_entry import take_entry_input
 
 def hash_save_folder(path:Path):
     from constants import SKIP_EXTENSIONS
@@ -84,3 +87,127 @@ def get_games_file():
         log('Games file not found, creating new', 'warning')
         games = {}
     return games
+
+def clear_trash(user_called=True):
+    from constants import TRASH_FOLDER, MAX_BACKUPS, GAMES_FILE
+    
+    # If called programmatically (from auto.py), clear all games
+    if not user_called:
+        if not is_json_valid(GAMES_FILE):
+            return
+        with open(GAMES_FILE, 'r') as f:
+            games = json.load(f)
+        for game in games:
+            clear_single_trash(TRASH_FOLDER, MAX_BACKUPS, game)
+        return
+    
+    # If called from main menu, show options
+    input_message = '1: All games\n2: Specific game\n3: Return to main menu\nSelect what trash to clear'
+    choice_num = int_range_input(input_message, 1, 3)
+    print()
+    choice_map = {
+        1: 'all',
+        2: 'specific',
+        3: 'return'
+    }
+    func_choice = choice_map[choice_num]
+    
+    match func_choice:
+        case 'all':
+            if not is_json_valid(GAMES_FILE):
+                print('[yellow]You have no game entries[/]')
+                return
+            with open(GAMES_FILE, 'r') as f:
+                games = json.load(f)
+            
+            successful_clears = []
+            for count, game in enumerate(games, 1):
+                print()
+                print(f'[bold][underline]{count}: {game}[/][/]')
+                success = clear_single_trash(TRASH_FOLDER, MAX_BACKUPS, game)
+                if success:
+                    print(f'[green]Trash cleared for {game}[/]')
+                    successful_clears.append(game)
+                else:
+                    print('[yellow]No trash was cleared[/]')
+            if successful_clears:
+                print(f'\n[green]Trash cleared for {len(successful_clears)} games[/]')
+        case 'specific':
+            if not is_json_valid(GAMES_FILE):
+                print('[yellow]You have no game entries[/]')
+                return
+            _, game_choice = take_entry_input(keyword='to clear trash for', extra_info=False)
+            success = clear_single_trash(TRASH_FOLDER, MAX_BACKUPS, game_choice)
+            if success:
+                print(f'[green]Trash cleared for {game_choice}[/]')
+            else:
+                print('[yellow]No trash was cleared[/]')
+        case 'return':
+            return
+
+def clear_single_trash(trash_folder, max_backups, game_name):
+    trash_path = Path(trash_folder)
+    if not trash_path.exists():
+        print(f'[yellow]Trash folder {trash_folder} does not exist[/]')
+        log(f'Trash folder {trash_folder} does not exist', 'warning')
+        return False
+
+    game_trash_path = trash_path / game_name
+    if not game_trash_path.exists() or not game_trash_path.is_dir():
+        print(f'[yellow]No trash found for game {game_name}[/]')
+        log(f'No trash found for game {game_name}', 'warning')
+        return False
+
+    try:
+        backups = sorted(
+            [f for f in game_trash_path.iterdir() if f.is_dir()],
+            key=lambda x: x.name,
+            reverse=True
+        )
+        
+        if len(backups) <= max_backups:
+            print(f'[blue]Game {game_name} has {len(backups)} backup(s) (within limit of {max_backups})[/]')
+            log(f'Game {game_name} has {len(backups)} backup(s) (within limit of {max_backups})')
+            return False
+        
+        deleted_count = 0
+        old_backups = backups[max_backups:]
+        
+        print(f'[blue]Clearing {len(old_backups)} excess backups for {game_name}...[/]')
+        
+        for old_backup in old_backups:
+            try:
+                # Remove all files first
+                for file in old_backup.rglob("*"):
+                    if file.is_file():
+                        file.unlink()
+                
+                # Remove directories (deepest first)
+                for folder in sorted(old_backup.rglob("*"), reverse=True):
+                    if folder.is_dir():
+                        folder.rmdir()
+                
+                # Remove the backup folder itself
+                old_backup.rmdir()
+                deleted_count += 1
+                
+                log(f'[dim]Deleted backup: {old_backup.name}[/]')
+                
+            except Exception as e:
+                log(f'Error deleting backup {old_backup}: {e}', 'error')
+                print(f'[red]Error deleting backup {old_backup.name}: {e}[/]')
+                continue
+        
+        if deleted_count > 0:
+            log(f'Cleared {deleted_count} old backups for {game_name}', 'info')
+        
+        # Remove game folder if it's empty
+        if game_trash_path.exists() and not any(game_trash_path.iterdir()):
+            game_trash_path.rmdir()
+            log(f'Removed empty game folder {game_name}', 'info')
+        
+        return deleted_count > 0
+    except Exception as e:
+        log(f'Error processing game folder {game_name}: {e}', 'error')
+        print(f'[red]Error processing game folder {game_name}: {e}[/]')
+        return False

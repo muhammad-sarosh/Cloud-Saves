@@ -6,7 +6,7 @@ import supabase
 import os
 from pathlib import Path
 
-def check_save_status(config, func_choice=None, game_choice=None, user_called=True):
+def check_save_status(config):
     from file_utils import is_json_valid
     from supabase_client import loop_supabase_validation
     from ui import int_range_input
@@ -19,15 +19,14 @@ def check_save_status(config, func_choice=None, game_choice=None, user_called=Tr
     with open(GAMES_FILE, 'r') as f:
         games = json.load(f)
 
-    if user_called:
-        input_message = '1: All games\n2: Specific game\n3: Return to main menu\nSelect what you want to check the status of'
-        choice_num = int_range_input(input_message, 1, 3)
-        choice_map = {
-            1: 'all',
-            2: 'specific',
-            3: 'return'
-        }
-        func_choice = choice_map[choice_num]
+    input_message = '1: All games\n2: Specific game\n3: Return to main menu\nSelect what you want to check the status of'
+    choice_num = int_range_input(input_message, 1, 3)
+    choice_map = {
+        1: 'all',
+        2: 'specific',
+        3: 'return'
+    }
+    func_choice = choice_map[choice_num]
 
     if func_choice != 'return':
         if loop_supabase_validation(config=config) == -1:
@@ -37,16 +36,11 @@ def check_save_status(config, func_choice=None, game_choice=None, user_called=Tr
     match func_choice:
         case 'all':
             data = [get_status(config=config, client=client, games=games, game_choice=game) for game in games]
-            if not user_called:
-                return data
             for count, game in enumerate(data, 1):
                 print_status(game, count)
         case 'specific':
-            if user_called:
-                _, game_choice = take_entry_input(keyword='to check the save status of', extra_info=False)
+            _, game_choice = take_entry_input(keyword='to check the save status of', extra_info=False)
             data = get_status(config=config, client=client, games=games, game_choice=game_choice)
-            if not user_called:
-                return data
             print()
             print_status(data)
         case 'return':
@@ -57,13 +51,14 @@ def get_status(config, client, games, game_choice):
     from common import get_platform
 
     platform = get_platform()
-    folder = Path(games[game_choice][f"{platform}_path"])
+    folder = games[game_choice][f"{platform}_path"]
     # Need to check for empty "" path entry too as that still forms a valid path to the current directory
-    if not games[game_choice][f"{platform}_path"] or not os.path.exists(folder):
+    if not folder or not os.path.exists(folder):
         return {
             'game': game_choice,
             'error': 'The save directory provided for this game is invalid'
         }
+    folder = Path(folder)
         
     response = (
         client.table(config.table_name)

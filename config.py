@@ -16,10 +16,10 @@ def load_cfg():
         with open(CONFIG_FILE, 'r') as f:
             loaded_config = json.load(f)
             try:
-                url = loaded_config['supabase']['url']
-                api_key = loaded_config['supabase']['api_key']
-                games_bucket = loaded_config['supabase']['games_bucket']
-                table_name = loaded_config['supabase']['table_name']
+                url = loaded_config['url']
+                api_key = loaded_config['api_key']
+                games_bucket = loaded_config['games_bucket']
+                table_name = loaded_config['table_name']
             except:
                 regenerate = True
 
@@ -36,22 +36,22 @@ def load_cfg():
                 if not is_auto_mode():
                     print(f'The url value in your {CONFIG_FILE} is empty')
                     url = get_supabase_info(choice='url')
-                    loaded_config['supabase']['url'] = url
+                    loaded_config['url'] = url
                     changed = True
             if api_key == '':
                 log(f'Api key in {CONFIG_FILE} is empty', 'error')
                 if not is_auto_mode():
                     print(f'The api key value in your {CONFIG_FILE} is empty')
                     api_key = get_supabase_info(choice='api key')
-                    loaded_config['supabase']['api_key'] = api_key      
+                    loaded_config['api_key'] = api_key      
                     changed = True
             if games_bucket == '':
                 log(f'Games bucket name in {CONFIG_FILE} is empty, setting defaults')
-                loaded_config['supabase']['games_bucket'] = DEFAULT_CONFIG['supabase']['games_bucket']
+                loaded_config['games_bucket'] = DEFAULT_CONFIG['games_bucket']
                 changed = True
             if table_name == '':
                 log(f'Table name in {CONFIG_FILE} is empty, setting defaults')
-                loaded_config['supabase']['table_name'] = DEFAULT_CONFIG['supabase']['table_name']
+                loaded_config['table_name'] = DEFAULT_CONFIG['table_name']
                 changed = True
             if changed:
                 with open(CONFIG_FILE, "w") as f:
@@ -80,11 +80,11 @@ def regenerate_cfg():
               "\n(If this is your first time running the program, this is normal)[/]")
         url = get_supabase_info(choice='url')
         api_key = get_supabase_info(choice='api key')
-        games_bucket = DEFAULT_CONFIG['supabase']['games_bucket']
-        table_name = DEFAULT_CONFIG['supabase']['table_name']
+        games_bucket = DEFAULT_CONFIG['games_bucket']
+        table_name = DEFAULT_CONFIG['table_name']
         temp_config = copy.deepcopy(DEFAULT_CONFIG)
-        temp_config['supabase']['url'] = url
-        temp_config['supabase']['api_key'] = api_key
+        temp_config['url'] = url
+        temp_config['api_key'] = api_key
         json.dump(temp_config, f, indent=4)
         print('\nConfig file successfully regenerated')
         return url, api_key, games_bucket, table_name
@@ -109,17 +109,17 @@ def edit_supabase_info(config, choice=None, user_called=True):
             choice = choice_map[choice_num]
         match choice:
             case 'url':
-                loaded_config['supabase']['url'] = get_supabase_info(choice='url')
-                config.url = loaded_config['supabase']['url']
+                loaded_config['url'] = get_supabase_info(choice='url')
+                config.url = loaded_config['url']
             case 'api key':
-                loaded_config['supabase']['api_key'] = get_supabase_info(choice='api key')
-                config.api_key = loaded_config['supabase']['api_key']
+                loaded_config['api_key'] = get_supabase_info(choice='api key')
+                config.api_key = loaded_config['api_key']
             case 'bucket name':
-                loaded_config['supabase']['games_bucket'] = get_supabase_info(choice='bucket name')
-                config.games_bucket = loaded_config['supabase']['games_bucket']
+                loaded_config['games_bucket'] = get_supabase_info(choice='bucket name')
+                config.games_bucket = loaded_config['games_bucket']
             case 'table name':
-                loaded_config['supabase']['table_name'] = get_supabase_info(choice='table name')
-                config.table_name = loaded_config['supabase']['table_name']
+                loaded_config['table_name'] = get_supabase_info(choice='table name')
+                config.table_name = loaded_config['table_name']
             case 'exit':
                 return
         with open(CONFIG_FILE, 'w') as f:
