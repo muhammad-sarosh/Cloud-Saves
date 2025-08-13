@@ -179,10 +179,12 @@ def upload_save(config, games=None, entry=None, user_called=True):
     client = supabase.create_client(config.url, config.api_key)
 
     operating_sys = get_platform()
+
     local_path = Path(games[entry][operating_sys])
-    if not os.path.exists(local_path):
-        log(f'The save directory for {entry} is invalid', 'error')
-        send_notification(title='Error', message=f'The save direcotry for {entry} is invalid')
+    # Need to check for empty "" path entry too as that still forms a valid path to the current directory
+    if not games[entry][operating_sys] or not os.path.exists(local_path):
+        log(f'The save directory for {entry} is invalid: {games[entry][operating_sys]}', 'error')
+        send_notification(title='Error', message=f'The save direcotry for {entry} is invalid. Check logs for details')
         print('\n[yellow]The save directory provided for this game is invalid[/]')
         return
     files_to_upload = [f for f in local_path.rglob('*') if f.is_file() and f.suffix.lower() not in SKIP_EXTENSIONS]
@@ -229,6 +231,7 @@ def upload_save(config, games=None, entry=None, user_called=True):
         print(f"[red]Failed to update table data for {entry}: {e}[/]")
 
     print('\n[green]All files successfully uploaded[/]')
+    return True # So auto.py can detect success
 
 def download_file(config, client, entry, file_path, source_path, retries=3):
     relative_path = Path(file_path.replace(f"{entry}/", "", 1))
@@ -268,9 +271,9 @@ def download_save(config, response=None, user_called=True):
     games, entry = response
 
     source_path = Path(games[entry][operating_sys])
-    if not os.path.exists(source_path):
-        log(f'The save directory for {entry} is invalid', 'error')
-        send_notification(title='Error', message=f'The save direcotry for {entry} is invalid')
+    if not games[entry][operating_sys] or not os.path.exists(source_path):
+        log(f'The save directory for {entry} is invalid: {games[entry][operating_sys]}', 'error')
+        send_notification(title='Error', message=f'The save direcotry for {entry} is invalid. Check logs for details')
         print('[yellow]The save directory provided for this game is invalid[/]')
         return
 
@@ -345,6 +348,7 @@ def download_save(config, response=None, user_called=True):
                 progress.advance(task)
 
     print('\n[green]All files successfully downloaded[/]')
+    return True # So auto.py can detect success
 
 def remove_supabase_files(config, client, entry_name_to_del):
     files_to_delete = list_all_supabase_files(config=config, client=client, folder=f"{entry_name_to_del}/")

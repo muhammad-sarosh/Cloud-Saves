@@ -3,6 +3,7 @@ import os
 import psutil
 import supabase
 import logging
+from logging.handlers import RotatingFileHandler
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
@@ -49,6 +50,7 @@ def is_match(target_patterns, proc):
 def get_target_patterns():
     from common import get_platform
     from file_utils import get_games_file
+    from constants import SKIP_GAMES
 
     platform = get_platform()
     if platform == 'unsupported':
@@ -58,9 +60,10 @@ def get_target_patterns():
     games = get_games_file()
     target_patterns = {}
     for game, data in games.items():
-        process = data.get(f'{platform}_process', None)
-        if process:
-            target_patterns[game] = process
+        if game not in SKIP_GAMES:
+            process = data.get(f'{platform}_process', None)
+            if process:
+                target_patterns[game] = process
     return target_patterns
 
 def snapshot_matches(target_patterns):
@@ -130,25 +133,37 @@ async def on_process_exit(info):
     log(f'Save syncing for {game} started')
 
     if info['latest'] == 'cloud':
-        log(f'Cloud save is ahead, downloading')
-        await asyncio.to_thread(download_save, config=config, response=(games, game), user_called=False)
+        log(f'Downloading data for {game}...')
+        success = await asyncio.to_thread(download_save, config=config, response=(games, game), user_called=False)
     elif info['latest'] == 'local':
-        log(f'Local save is ahead, uploading')
-        await asyncio.to_thread(upload_save, config=config, games=games, entry=game, user_called=False)
+        log(f'Uploading data for {game}...')
+        success = await asyncio.to_thread(upload_save, config=config, games=games, entry=game, user_called=False)
 
-    send_notification(title=game, message='Save Synced')
-    log(f'Save for {game} synced')
+    if success:
+        send_notification(title=game, message='Save Synced')
+        log(f'Save for {game} synced')
 
 async def watch_loop():
-    from constants import POLL_INTERVAL
-
-    # Configuring logger
-    logging.basicConfig(
-        filename='cloud_saves.log',
-        level=logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S' 
+    from constants import POLL_INTERVAL, LOG_FILE_NAME, MAX_LOG_BYTES, LOG_BACKUP_COUNT
+    
+    # Logger setup
+    handler = RotatingFileHandler(
+        filename=LOG_FILE_NAME,
+        maxBytes=MAX_LOG_BYTES,
+        backupCount=LOG_BACKUP_COUNT
     )
+
+    formatter = logging.Formatter(
+        fmt='%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    handler.setFormatter(formatter)
+
+    # Configuring root logger so these settings are global
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
 
     # Setting env var for logging
     os.environ['AUTO_MODE'] = "1"

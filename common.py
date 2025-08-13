@@ -49,10 +49,10 @@ def log(message, level='info'):
             logger.warning(message)
 
 def send_notification(title, message):
-    from constants import APP_NAME, ICON_PATH
+    from constants import APP_NAME, ICON_PATH, SEND_NOTIFICATIONS
     from common import get_platform
 
-    if not is_auto_mode():
+    if not is_auto_mode() or not SEND_NOTIFICATIONS:
         return
 
     platform_name = get_platform()
