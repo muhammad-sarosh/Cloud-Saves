@@ -9,16 +9,12 @@ import supabase
 import time
 import json
 
-from files import hash_save_folder, get_last_modified, move_files
-from config import edit_supabase_info
-from common import get_platform, internet_check, log, is_auto_mode, send_notification
-from game_entry import take_entry_input
-from settings import CONFIG_FILE
-
 # Returns True if everthing is valid. Returns False and updates info if anything was invalid
 # Returns -1 if unexpected error
 def supabase_validation(config):
-    from common import log
+    from common import log, internet_check, is_auto_mode, send_notification
+    from config import edit_supabase_info
+    from settings import CONFIG_FILE
     
     internet_check()
     log('Starting Supabase validation')
@@ -54,7 +50,6 @@ def supabase_validation(config):
             print(f"[yellow]The column(s) [underline]{str(missing_columns)}[/] are missing from your supabase table[/]")
             send_notification(title='Error', message=f"The column(s) {str(missing_columns)} are missing from your supabase table")
             log(f"The column(s) {str(missing_columns)} are missing from your supabase table", 'error')
-                
             return -1
         
         for column in required_columns_list:
@@ -178,7 +173,9 @@ def upload_file(config, client, entry, file_path, local_path, retries=3):
 
 def upload_save(config, games=None, entry=None, user_called=True, validate_supabase=True):
     from settings import SKIP_EXTENSIONS
-    from common import log
+    from common import log, get_platform, send_notification
+    from game_entry import take_entry_input
+    from files import hash_save_folder, get_last_modified
     
     log(f'Starting upload for {entry}', 'info')
     
@@ -186,12 +183,12 @@ def upload_save(config, games=None, entry=None, user_called=True, validate_supab
         response = take_entry_input(keyword='to upload', extra_info=False)
         # True if there are no game entries
         if response == None:
-            return
+            return False
         games, entry = response
 
     if validate_supabase:
         if loop_supabase_validation(config=config) == -1:
-            return
+            return False
     
     client = supabase.create_client(config.url, config.api_key)
 
@@ -203,13 +200,13 @@ def upload_save(config, games=None, entry=None, user_called=True, validate_supab
         log(f'The save directory for {entry} is invalid: {games[entry][f"{operating_sys}_path"]}', 'error')
         send_notification(title='Error', message=f'The save direcotry for {entry} is invalid. Check logs for details')
         print('\n[yellow]The save directory provided for this game is invalid[/]')
-        return
+        return False
     local_path = Path(local_path)
     files_to_upload = [f for f in local_path.rglob('*') if f.is_file() and f.suffix.lower() not in SKIP_EXTENSIONS]
     if not files_to_upload:
         log(f'The save directory for {entry} contains no files', 'warning')
         print('\n[yellow]The save directory for this game contains no files[/]')
-        return
+        return False
     
     log(f'Found {len(files_to_upload)} files to upload for {entry}')
     
@@ -294,7 +291,9 @@ def download_file(config, client, entry, file_path, source_path, retries=3):
     return relative_path.name, 'WinError 10035: Failed after retries'
 
 def download_save(config, games=None, entry=None, user_called=True, validate_supabase=True):
-    from common import log
+    from common import log, internet_check, get_platform, send_notification
+    from game_entry import take_entry_input
+    from files import hash_save_folder, move_files
     
     internet_check()
     log(f'Starting download for {entry}', 'info')
@@ -305,7 +304,7 @@ def download_save(config, games=None, entry=None, user_called=True, validate_sup
         response = take_entry_input(keyword="which's save you want to download", extra_info=False)
     # True if there are no game entries
         if response == None:
-            return
+            return False
         games, entry = response
 
     source_path = games[entry][f"{operating_sys}_path"]
@@ -313,12 +312,12 @@ def download_save(config, games=None, entry=None, user_called=True, validate_sup
         log(f'The save directory for {entry} is invalid: {games[entry][f"{operating_sys}_path"]}', 'error')
         send_notification(title='Error', message=f'The save direcotry for {entry} is invalid. Check logs for details')
         print('[yellow]The save directory provided for this game is invalid[/]')
-        return
+        return False
     source_path = Path(source_path)
 
     if validate_supabase:
         if loop_supabase_validation(config=config) == -1:
-            return
+            return False
     
     client = supabase.create_client(config.url, config.api_key)
 
@@ -328,27 +327,26 @@ def download_save(config, games=None, entry=None, user_called=True, validate_sup
         send_notification(title='Error', message=f'No table data found for {entry}')
         log(f'No table data found for {entry}', 'error')
         print(f'[yellow]No table data exists for the game {entry}[/]')
-        return
+        return False
     
     file_list = client.storage.from_(config.games_bucket).list(f"{entry}/")
     if not file_list:
         send_notification(title='Error', message=f'No cloud data found for {entry}')
         log(f'No cloud data found for {entry}', 'error')
         print(f'[yellow]No cloud data exists for the game {entry}[/]')
-        return
+        return False
     
     source_hash = hash_save_folder(path=source_path)
     cloud_hash = row[config.required_columns['hash']]
 
     if source_hash == cloud_hash:
-        log(f'Local and cloud saves for {entry} are identical, but continuing with download')
         choice = Prompt.ask(f"[yellow]Your local and cloud save files are currently the same. Do you still want to continue? (y/n)[/]").strip().lower()
         print()
         while True:
             if choice == 'y':
                 break
             elif choice == 'n':
-                return
+                return False
             else:
                 choice = Prompt.ask("Incorrect input. Please answer with 'y' or 'n'").strip().lower()
 
@@ -361,7 +359,7 @@ def download_save(config, games=None, entry=None, user_called=True, validate_sup
 
     files_to_download = list_all_supabase_files(config=config, client=client, folder=f"{entry}/")
     if files_to_download == -1:
-        return
+        return False
     
     log(f'Found {len(files_to_download)} files to download for {entry}')
     
@@ -426,6 +424,7 @@ def sync_save(config):
     from files import is_json_valid
     from settings import GAMES_FILE
     from ui import int_range_input
+    from game_entry import take_entry_input
 
     if not is_json_valid(GAMES_FILE):
         print('You have no game entries')
@@ -468,6 +467,8 @@ def sync_save(config):
             return
 
 def remove_supabase_files(config, client, entry_name_to_del):
+    from common import internet_check
+    
     files_to_delete = list_all_supabase_files(config=config, client=client, folder=f"{entry_name_to_del}/")
     if files_to_delete == -1:
         return
@@ -480,7 +481,7 @@ def remove_supabase_files(config, client, entry_name_to_del):
 
 # Returns -1 if error
 def list_all_supabase_files(config, client, folder):
-    from common import log
+    from common import log, internet_check, send_notification
     
     try:
         internet_check()

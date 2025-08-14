@@ -70,25 +70,11 @@ def get_target_patterns():
     log(f'Loaded {len(target_patterns)} target patterns for {platform} platform')
     return target_patterns
 
-def snapshot_matches(target_patterns):
-    matches = {}
-    for proc in psutil.process_iter(["pid", "name", "exe", "cmdline"]):
-        match_found, game = is_match(target_patterns=target_patterns, proc=proc)
-        if match_found:
-            pid = proc.info["pid"]
-            matches[pid] = game
-    return matches
-
-async def on_process_start(state, pid, current):
+async def get_latest(game):
     from config import load_cfg
     from files import get_games_file
-    from status import get_status
     from common import internet_check
-
-    game = current[pid]
-
-    send_notification(title=game, message='Cloud saves is watching')
-    log(f'Watching {game}')
+    from status import get_status
 
     config = load_cfg()
     games = get_games_file()
@@ -99,31 +85,50 @@ async def on_process_start(state, pid, current):
         client = supabase.create_client(config.url, config.api_key)
     except Exception as e:
         send_notification(title='Error', message='Failed to create supabase client. Check your supabase url and api key')
-        log(f'Failed to create supaabse client: {e}', 'error')
-        return
+        log(f'Failed to create supabse client: {e}', 'error')
+        return -1
 
     
     data = await asyncio.to_thread(get_status, config=config, client=client, games=games, game_choice=game)
     if data['error']:
         send_notification(title=game, message=data['error'])
         log(f'Error when checking sync status for {game}: {data['error']}', 'error')
+        return -1
+    
+    return data['latest']
+
+def snapshot_matches(target_patterns):
+    matches = {}
+    for proc in psutil.process_iter(["pid", "name", "exe", "cmdline"]):
+        match_found, game = is_match(target_patterns=target_patterns, proc=proc)
+        if match_found:
+            pid = proc.info["pid"]
+            matches[pid] = game
+    return matches
+
+async def on_process_start(state, pid, current):
+    game = current[pid]
+
+    send_notification(title=game, message='Cloud saves is watching')
+    log(f'Watching {game}')
+
+    latest = await get_latest(game=game)
+    if latest == -1:
+        return
+
+    if latest == 'cloud':
+        send_notification(title=game, message='Cloud save is ahead. Please close the game for the save syncing to begin')
+        log('Cloud save is ahead, waiting for game to close')
+    elif latest == 'local':
+        log('Local save is ahead, waiting for game to close')
+    elif latest == 'synced':
+        log(f'{game} save is already in sync')
+    else:
+        send_notification(title='Error', message=f'Unable to determine sync status for {game}')
+        log(f'Unable to determine sync status for {game}', 'error')
         return
     
-    latest = data['latest']
-
-    if latest != 'synced':
-        if latest == 'cloud':
-            send_notification(title=game, message='Cloud save is ahead. Please close the game for the save syncing to begin')
-            log('Cloud save is ahead, waiting for game to close')
-        elif latest == 'local':
-            log('Local save is ahead, waiting for game to close')
-        else:
-            send_notification(title='Error', message=f'Unable to determine sync status for {game}')
-            log(f'Unable to determine sync status for {game}', 'error')
-            return
-        state[pid] = {'game': current[pid], 'latest': latest}
-    else:
-        log(f'{game} save is already in sync')
+    state[pid] = {'game': current[pid], 'latest': latest}
 
 async def on_process_exit(info):
     from config import load_cfg
@@ -133,10 +138,23 @@ async def on_process_exit(info):
     # info -> {game: game, latest: latest}
     await asyncio.sleep(2)
 
-    config = load_cfg()
-    games = get_games_file()
     game = info['game']
 
+    # If game was marked as synced when process started, get status again and check if the save updated
+    if info['latest'] == 'synced':
+        latest = await get_latest(game=game)
+        if latest == -1:
+            return
+        # If game is still synced, return. Otherwise update the status
+        if latest == 'synced':
+            log(f'{game} save is already in sync')
+            return
+        else:
+            info['latest'] = latest
+    
+    config = load_cfg()
+    games = get_games_file()
+    
     send_notification(title=game, message='Save syncing started')
     log(f'Save syncing for {game} started')
 
@@ -161,7 +179,7 @@ async def watch_loop():
     if LOG_FOLDER:
         os.makedirs(LOG_FOLDER, exist_ok=True)
 
-    handler = RotatingFileHandler(
+    log_handler = RotatingFileHandler(
         filename=os.path.join(LOG_FOLDER, LOG_FILE_NAME),
         maxBytes=MAX_LOG_BYTES,
         backupCount=LOG_BACKUP_COUNT
@@ -172,12 +190,12 @@ async def watch_loop():
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
-    handler.setFormatter(formatter)
+    log_handler.setFormatter(formatter)
 
     # Configuring root logger so these settings are global
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
-    logger.addHandler(handler)    # Setting env var for logging
+    logger.addHandler(log_handler)    # Setting env var for logging
     os.environ['AUTO_MODE'] = "1"
     
     log('Cloud Saves auto-sync starting up')
@@ -203,8 +221,8 @@ async def watch_loop():
         reload_flag['reload'] = True
 
     observer = Observer()
-    handler = GamesFileHandler(reload_callback)
-    observer.schedule(handler, path=os.getcwd(), recursive=False)
+    log_handler = GamesFileHandler(reload_callback)
+    observer.schedule(log_handler, path=os.getcwd(), recursive=False)
     observer.start()
 
     try:
@@ -216,7 +234,12 @@ async def watch_loop():
                 reload_flag['reload'] = False
                 
             if target_patterns:
-                current = snapshot_matches(target_patterns=target_patterns)
+                try:
+                    current = snapshot_matches(target_patterns=target_patterns)
+                except Exception as e:
+                    log(f'Error during process monitoring: {e}', 'error')
+                    await asyncio.sleep(POLL_INTERVAL)
+                    continue
 
                 started_pids = current.keys() - seen.keys()
                 ended_pids   = seen.keys() - current.keys()
