@@ -24,11 +24,12 @@ def internet_check(host="8.8.8.8", port=53, timeout=3):
         try:
             socket.setdefaulttimeout(timeout)
             socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
+            log('Internet connection confirmed')
             return
         except socket.error:
             if is_auto_mode():
                 if not internet_logged:
-                    log('No internet detected, waiting...')
+                    log('No internet detected, waiting...', 'warning')
                     internet_logged = True
                 time.sleep(3)
             else:

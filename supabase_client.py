@@ -18,7 +18,11 @@ from settings import CONFIG_FILE
 # Returns True if everthing is valid. Returns False and updates info if anything was invalid
 # Returns -1 if unexpected error
 def supabase_validation(config):
+    from common import log
+    
     internet_check()
+    log('Starting Supabase validation')
+    
     try:
         # Checks URL and API key
         client = supabase.create_client(config.url, config.api_key)
@@ -68,12 +72,15 @@ def supabase_validation(config):
             try:
                 log('Supabase bucket not found, attempting to create', 'warning')
                 client.storage.create_bucket(config.games_bucket)
+                log(f'Successfully created bucket: {config.games_bucket}')
             except Exception as e:
                 log(f'Could not create supabase bucket: {e}', 'error')
                 send_notification(title='Error', message='Could not create supabase bucket, check logs for details')
                 print(f'[yellow]Supabase storage bucket {config.games_bucket} does not exist. [/]'\
                         f'[yellow]The program encountered this error when trying to create it: {e}[/]')
                 return -1
+        
+        log('Supabase validation successful')
         return True
     except Exception as e:
         e_str = getattr(e, "message", None)
@@ -109,7 +116,7 @@ def supabase_validation(config):
                 return -1
         else:
             send_notification(title='Error', message='An unexpected error occured while trying to validate supabase. Check logs for details')
-            log(f'Unexpected error when trying to validate supabase: {e}')
+            log(f'Unexpected error when trying to validate supabase: {e}', 'error')
             print(f"[red]ERROR:[/] {e}")
             return -1
         
@@ -126,6 +133,8 @@ def loop_supabase_validation(config):
             return valid   
 
 def upload_file(config, client, entry, file_path, local_path, retries=3):
+    from common import log
+    
     # Makes full path into relative path 
     relative_path = file_path.relative_to(local_path)
     upload_path = f"{entry}/{relative_path}".replace('\\', '/')
@@ -154,6 +163,7 @@ def upload_file(config, client, entry, file_path, local_path, retries=3):
                         time.sleep(0.2)
                         attempt += 1
                         continue
+                    log(f'Failed to upload file {relative_path}: {e2}', 'error')
                     return file_path, str(e2)
             # Need same error checking  in both cases
             elif winerr == 10035:
@@ -161,11 +171,16 @@ def upload_file(config, client, entry, file_path, local_path, retries=3):
                 attempt += 1
                 continue
             else:
+                log(f'Failed to upload file {relative_path}: {e}', 'error')
                 return  file_path, str(e)
+    log(f'Failed to upload file {relative_path} after {retries} retries', 'error')
     return file_path, "WinError 10035: Failed after retries"
 
 def upload_save(config, games=None, entry=None, user_called=True, validate_supabase=True):
     from settings import SKIP_EXTENSIONS
+    from common import log
+    
+    log(f'Starting upload for {entry}', 'info')
     
     if user_called:
         response = take_entry_input(keyword='to upload', extra_info=False)
@@ -196,6 +211,8 @@ def upload_save(config, games=None, entry=None, user_called=True, validate_supab
         print('\n[yellow]The save directory for this game contains no files[/]')
         return
     
+    log(f'Found {len(files_to_upload)} files to upload for {entry}')
+    
     # Initialising progress bar
     with Progress() as progress:
         from settings import MAX_UPLOAD_THREADS
@@ -212,11 +229,19 @@ def upload_save(config, games=None, entry=None, user_called=True, validate_supab
             ]
         
             # As each file finishes, handle progress and errors
+            error_count = 0
             for future in as_completed(futures):
                 filename, error = future.result()
                 if error:
+                    log(f'Error uploading {filename} for {entry}: {error}', 'error')
                     print(f"[red]Error uploading {filename}: {error}[/]")
+                    error_count += 1
                 progress.advance(task)
+
+    if error_count > 0:
+        log(f'Upload completed with {error_count} errors for {entry}', 'warning')
+    else:
+        log(f'Successfully uploaded all files for {entry}')
 
     folder_hash = hash_save_folder(path=local_path)
     last_modified = get_last_modified(folder=Path(local_path))
@@ -228,6 +253,7 @@ def upload_save(config, games=None, entry=None, user_called=True, validate_supab
     }
     try:
         client.table(config.table_name).upsert(row).execute()
+        log(f'Updated table data for {entry}')
     except Exception as e:
         send_notification(title='Error', message=f'Failed to update table data for {entry}. Check logs for details')
         log(f'Failed to update table data for {entry}: {e}', 'error')
@@ -237,6 +263,8 @@ def upload_save(config, games=None, entry=None, user_called=True, validate_supab
     return True # So auto.py can detect success
 
 def download_file(config, client, entry, file_path, source_path, retries=3):
+    from common import log
+    
     relative_path = Path(file_path.replace(f"{entry}/", "", 1))
     destination_path = source_path / relative_path
 
@@ -257,13 +285,19 @@ def download_file(config, client, entry, file_path, source_path, retries=3):
                 time.sleep(0.2)
                 attempt += 1
                 continue
+            log(f'Failed to download file {relative_path.name}: {e}', 'error')
             return relative_path.name, str(e)
         except Exception as e:
+            log(f'Failed to download file {relative_path.name}: {e}', 'error')
             return relative_path.name, str(e)
+    log(f'Failed to download file {relative_path.name} after {retries} retries', 'error')
     return relative_path.name, 'WinError 10035: Failed after retries'
 
 def download_save(config, games=None, entry=None, user_called=True, validate_supabase=True):
+    from common import log
+    
     internet_check()
+    log(f'Starting download for {entry}', 'info')
     
     operating_sys = get_platform()
 
@@ -307,6 +341,7 @@ def download_save(config, games=None, entry=None, user_called=True, validate_sup
     cloud_hash = row[config.required_columns['hash']]
 
     if source_hash == cloud_hash:
+        log(f'Local and cloud saves for {entry} are identical, but continuing with download')
         choice = Prompt.ask(f"[yellow]Your local and cloud save files are currently the same. Do you still want to continue? (y/n)[/]").strip().lower()
         print()
         while True:
@@ -328,6 +363,8 @@ def download_save(config, games=None, entry=None, user_called=True, validate_sup
     if files_to_download == -1:
         return
     
+    log(f'Found {len(files_to_download)} files to download for {entry}')
+    
     move_files(source_path=source_path, backup_path=backup_path)
 
     log(f'Downloading files for {entry}')
@@ -344,6 +381,7 @@ def download_save(config, games=None, entry=None, user_called=True, validate_sup
             ]
         
             # As each file finishes, handle progress and errors
+            error_count = 0
             for future in as_completed(futures):
                 filename, error = future.result()
                 if error:
@@ -351,7 +389,13 @@ def download_save(config, games=None, entry=None, user_called=True, validate_sup
                     send_notification(title='Error', message=f'Error downloading {filename} for {entry}. Check logs for details')
                     log(f'Error downloading {filename} for {entry}: {error}. {extra_message}', 'error')
                     print(f"[yellow]Error downloading {filename}: {error}. {extra_message}[/]")
+                    error_count += 1
                 progress.advance(task)
+
+    if error_count > 0:
+        log(f'Download completed with {error_count} errors for {entry}', 'warning')
+    else:
+        log(f'Successfully downloaded all files for {entry}')
 
     print('\n[green]All files successfully downloaded[/]')
     return True # So auto.py can detect success
@@ -436,6 +480,8 @@ def remove_supabase_files(config, client, entry_name_to_del):
 
 # Returns -1 if error
 def list_all_supabase_files(config, client, folder):
+    from common import log
+    
     try:
         internet_check()
         full_file_paths = []
@@ -453,6 +499,8 @@ def list_all_supabase_files(config, client, folder):
                 full_file_paths.extend(subfiles)
             else:
                 full_file_paths.append(full_path)
+        
+        log(f'Found {len(full_file_paths)} files in Supabase folder: {folder}')
         return full_file_paths
     except Exception as e:
         send_notification(title='Error', message='An error occured while retrieving data from supabase. Check logs for details')

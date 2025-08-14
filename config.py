@@ -9,6 +9,8 @@ def load_cfg():
     from files import is_json_valid
     from settings import DEFAULT_CONFIG, CONFIG_FILE
     
+    log('Loading configuration file', 'info')
+    
     valid = is_json_valid(CONFIG_FILE)
     regenerate = False
     if valid:
@@ -56,6 +58,9 @@ def load_cfg():
             if changed:
                 with open(CONFIG_FILE, "w") as f:
                     json.dump(loaded_config, f, indent=4)
+                log('Configuration file updated with missing values')
+    
+    log(f'Configuration loaded successfully - bucket: {games_bucket}, table: {table_name}')
     return SimpleNamespace(
         url=url,
         api_key=api_key,

@@ -55,7 +55,7 @@ def get_target_patterns():
     platform = get_platform()
     if platform == 'unsupported':
         log("Unsupported platform. Aborting", 'error')
-        return
+        return {}
 
     games = get_games_file()
     target_patterns = {}
@@ -64,6 +64,10 @@ def get_target_patterns():
             process = data.get(f'{platform}_process', None)
             if process:
                 target_patterns[game] = process
+            else:
+                log(f'No process name configured for {game} on {platform}', 'warning')
+    
+    log(f'Loaded {len(target_patterns)} target patterns for {platform} platform')
     return target_patterns
 
 def snapshot_matches(target_patterns):
@@ -146,6 +150,9 @@ async def on_process_exit(info):
     if success:
         send_notification(title=game, message='Save Synced')
         log(f'Save for {game} synced')
+    else:
+        send_notification(title='Error', message=f'Failed to sync save for {game}')
+        log(f'Failed to sync save for {game}', 'error')
 
 async def watch_loop():
     from settings import POLL_INTERVAL, LOG_FILE_NAME, LOG_FOLDER, MAX_LOG_BYTES, LOG_BACKUP_COUNT, CLEAR_TRASH
@@ -174,6 +181,9 @@ async def watch_loop():
 
     # Setting env var for logging
     os.environ['AUTO_MODE'] = "1"
+    
+    log('Cloud Saves auto-sync starting up')
+    log(f'Configuration: Poll interval {POLL_INTERVAL}s, Log rotation at {MAX_LOG_BYTES} bytes, {LOG_BACKUP_COUNT} backup files')
 
     # Clear trash if enabled
     if CLEAR_TRASH:
@@ -213,12 +223,14 @@ async def watch_loop():
                 ended_pids   = seen.keys() - current.keys()
 
                 for pid in started_pids:
+                    log(f'Process started: PID {pid} ({current[pid]})')
                     # Checking if on_process_start for this task is done if it was already running
                     task = start_tasks.pop(pid, None)
                     if task is not None and not task.done():
                         try:
                             await task
-                        except:
+                        except Exception as e:
+                            log(f'Error waiting for previous start task (PID {pid}): {e}', 'error')
                             continue
                     # If we're not already waiting for the game to close, then add it to the list
                     # of games that we wanna wait for
@@ -226,12 +238,14 @@ async def watch_loop():
                         start_tasks[pid] = asyncio.create_task(on_process_start(state=state, pid=pid, current=current))
 
                 for pid in ended_pids:
+                    log(f'Process ended: PID {pid} ({seen[pid]})')
                     # Check if on_process_start for that task is done
                     task = start_tasks.pop(pid, None)
                     if task is not None and not task.done():
                         try:
                             await task
-                        except:
+                        except Exception as e:
+                            log(f'Error waiting for start task to complete (PID {pid}): {e}', 'error')
                             continue
                     
                     # state data for that task will now be availible if conditions were met
@@ -242,11 +256,19 @@ async def watch_loop():
 
                 seen = current
                 await asyncio.sleep(POLL_INTERVAL)
+            else:
+                # No target patterns found, wait longer before checking again
+                await asyncio.sleep(POLL_INTERVAL * 2)
     except KeyboardInterrupt:
+        log('Received keyboard interrupt, shutting down...')
         pass
+    except Exception as e:
+        log(f'Unexpected error in watch loop: {e}', 'error')
+        raise
     finally:
         observer.stop()
         observer.join()
+        log('Watch loop shut down complete')
     
 
 def main():

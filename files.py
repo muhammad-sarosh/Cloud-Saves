@@ -11,9 +11,11 @@ from game_entry import take_entry_input
 
 def hash_save_folder(path:Path):
     from settings import SKIP_EXTENSIONS
+    from common import log
 
     # Intitialise md5 hash object
     hasher = hashlib.md5()
+    file_count = 0
     # File system ordering can be random, so we use
     # sorted so its the same everytime, imp for hashing
     for file in sorted(path.rglob("*")):
@@ -26,13 +28,21 @@ def hash_save_folder(path:Path):
                 # Reading file in chunks to avoid crashes on big files
                 while chunk := f.read(8192):
                     hasher.update(chunk)
-    # hexdigest() turns the hash into a string                
-    return hasher.hexdigest()
+            file_count += 1
+    # hexdigest() turns the hash into a string   
+    hash_result = hasher.hexdigest()
+    log(f'Calculated hash for {file_count} files in {path}: {hash_result[:8]}...')             
+    return hash_result
 
 def move_files(source_path, backup_path):
+    from common import log
+    
+    log(f'Moving files from {source_path} to backup at {backup_path}')
+    
     # Creating trash, game and backup folders (if they don't already exist)
     backup_path.mkdir(parents=True, exist_ok=True)
 
+    file_count = 0
     # Moving files to trash folder
     for file in source_path.rglob("*"):
         if file.is_file():
@@ -45,22 +55,31 @@ def move_files(source_path, backup_path):
 
             # Moving the file
             shutil.move(str(file), str(destination_path))
+            file_count += 1
 
     # Remove all empty folders (deepest first)
     for folder in sorted(source_path.rglob("*"), reverse=True):
         # Making sure folder is empty
         if folder.is_dir() and not any(folder.iterdir()):
             folder.rmdir()
+    
+    log(f'Moved {file_count} files to backup')
 
 def get_last_modified(folder: Path):
     from settings import SKIP_EXTENSIONS
+    from common import log
 
     latest_time = 0
+    file_count = 0
     for file in folder.rglob("*"):
         if file.is_file() and file.suffix.lower() not in SKIP_EXTENSIONS:
             mtime = file.stat().st_mtime
             latest_time = max(latest_time, mtime)
-    return datetime.fromtimestamp(latest_time, timezone.utc).isoformat() if latest_time else None
+            file_count += 1
+    
+    result = datetime.fromtimestamp(latest_time, timezone.utc).isoformat() if latest_time else None
+    log(f'Found latest modification time from {file_count} files in {folder}: {result}')
+    return result
 
 def is_json_valid(file):
     try:
@@ -90,15 +109,25 @@ def get_games_file():
 
 def clear_trash(user_called=True):
     from settings import TRASH_FOLDER, MAX_BACKUPS, GAMES_FILE
+    from common import log
     
     # If called programmatically (from auto.py), clear all games
     if not user_called:
+        log('Starting automatic trash cleanup')
         if not is_json_valid(GAMES_FILE):
+            log('No valid games file found for trash cleanup', 'warning')
             return
         with open(GAMES_FILE, 'r') as f:
             games = json.load(f)
+        cleared_games = []
         for game in games:
-            clear_single_trash(TRASH_FOLDER, MAX_BACKUPS, game)
+            success = clear_single_trash(TRASH_FOLDER, MAX_BACKUPS, game)
+            if success:
+                cleared_games.append(game)
+        if cleared_games:
+            log(f'Automatic trash cleanup completed for {len(cleared_games)} games: {cleared_games}')
+        else:
+            log('No trash cleanup needed')
         return
     
     # If called from main menu, show options
@@ -146,6 +175,8 @@ def clear_trash(user_called=True):
             return
 
 def clear_single_trash(trash_folder, max_backups, game_name):
+    from common import log
+    
     trash_path = Path(trash_folder)
     if not trash_path.exists():
         print(f'[yellow]Trash folder {trash_folder} does not exist[/]')
@@ -174,6 +205,7 @@ def clear_single_trash(trash_folder, max_backups, game_name):
         old_backups = backups[max_backups:]
         
         print(f'[blue]Clearing {len(old_backups)} excess backups for {game_name}...[/]')
+        log(f'Clearing {len(old_backups)} excess backups for {game_name}')
         
         for old_backup in old_backups:
             try:
@@ -191,7 +223,7 @@ def clear_single_trash(trash_folder, max_backups, game_name):
                 old_backup.rmdir()
                 deleted_count += 1
                 
-                log(f'[dim]Deleted backup: {old_backup.name}[/]')
+                log(f'Deleted backup: {old_backup.name}')
                 
             except Exception as e:
                 log(f'Error deleting backup {old_backup}: {e}', 'error')

@@ -48,12 +48,15 @@ def check_save_status(config):
         
 def get_status(config, client, games, game_choice):
     from files import hash_save_folder, get_last_modified
-    from common import get_platform
+    from common import get_platform, log
 
+    log(f'Checking sync status for {game_choice}')
+    
     platform = get_platform()
     folder = games[game_choice][f"{platform}_path"]
     # Need to check for empty "" path entry too as that still forms a valid path to the current directory
     if not folder or not os.path.exists(folder):
+        log(f'Invalid save directory for {game_choice}: {folder}', 'error')
         return {
             'game': game_choice,
             'error': 'The save directory provided for this game is invalid'
@@ -72,6 +75,7 @@ def get_status(config, client, games, game_choice):
         updated_at = None
         cloud_last_modified = None
         cloud_hash = None
+        log(f'No cloud data found for {game_choice}')
     else:
         updated_at = datetime.fromisoformat(data[config.required_columns['updated_at']]) if data[config.required_columns['updated_at']] else None
         cloud_last_modified = datetime.fromisoformat(data[config.required_columns['last_modified']]) if data[config.required_columns['last_modified']] else None
