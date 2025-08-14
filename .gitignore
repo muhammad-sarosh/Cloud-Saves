@@ -1,6 +1,6 @@
 __pycache__/
 games.json
-config.json
+supabase_config.json
 windows_env/
 linux_env/
 Trash/

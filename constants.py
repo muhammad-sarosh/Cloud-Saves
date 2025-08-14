@@ -7,7 +7,7 @@ DEFAULT_CONFIG = {
     "games_bucket":"game-saves",
     "table_name":"saves-data"
 }
-CONFIG_FILE = 'config.json'
+CONFIG_FILE = 'supabase_config.json'
 GAMES_FILE = 'games.json'
 
 SKIP_EXTENSIONS = ['.tmp'] # Files with these extensions will be skipped during uploads e.g ['.tmp', '.log']
