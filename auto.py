@@ -177,14 +177,12 @@ async def watch_loop():
     # Configuring root logger so these settings are global
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
-    logger.addHandler(handler)
-
-    # Setting env var for logging
+    logger.addHandler(handler)    # Setting env var for logging
     os.environ['AUTO_MODE'] = "1"
     
     log('Cloud Saves auto-sync starting up')
     log(f'Configuration: Poll interval {POLL_INTERVAL}s, Log rotation at {MAX_LOG_BYTES} bytes, {LOG_BACKUP_COUNT} backup files')
-
+    
     # Clear trash if enabled
     if CLEAR_TRASH:
         from files import clear_trash
@@ -197,6 +195,7 @@ async def watch_loop():
     seen = {}  # {pid: game}
     state = {} # {pid: {game: game, latest: latest}}
     start_tasks = {} # {pid: asyncio task}
+    syncing_games = set()  # Track games currently being synced
 
     # Watchdog setup
     reload_flag = {'reload': False}
@@ -224,6 +223,7 @@ async def watch_loop():
 
                 for pid in started_pids:
                     log(f'Process started: PID {pid} ({current[pid]})')
+
                     # Checking if on_process_start for this task is done if it was already running
                     task = start_tasks.pop(pid, None)
                     if task is not None and not task.done():
@@ -231,14 +231,14 @@ async def watch_loop():
                             await task
                         except Exception as e:
                             log(f'Error waiting for previous start task (PID {pid}): {e}', 'error')
-                            continue
-                    # If we're not already waiting for the game to close, then add it to the list
+                            continue                    # If we're not already waiting for the game to close, then add it to the list
                     # of games that we wanna wait for
                     if pid not in state.keys():
                         start_tasks[pid] = asyncio.create_task(on_process_start(state=state, pid=pid, current=current))
 
                 for pid in ended_pids:
-                    log(f'Process ended: PID {pid} ({seen[pid]})')
+                    game = seen[pid]
+                    log(f'Process ended: PID {pid} ({game})')
                     # Check if on_process_start for that task is done
                     task = start_tasks.pop(pid, None)
                     if task is not None and not task.done():
@@ -250,9 +250,24 @@ async def watch_loop():
                     
                     # state data for that task will now be availible if conditions were met
                     if pid in state.keys():
+                        # Skip if this game is already being synced
+                        if game in syncing_games:
+                            log(f'Sync already in progress for {game}, skipping PID {pid}')
+                            state.pop(pid, None)
+                            continue
+                        
+                        syncing_games.add(game)
                         info = state[pid]
                         state.pop(pid, None)
-                        asyncio.create_task(on_process_exit(info=info))
+                        
+                        # Create wrapper task that removes game from syncing_games when done
+                        async def sync_wrapper(info, syncing_games):
+                            try:
+                                await on_process_exit(info=info)
+                            finally:
+                                syncing_games.discard(info['game'])
+                        
+                        asyncio.create_task(sync_wrapper(info=info, syncing_games=syncing_games))
 
                 seen = current
                 await asyncio.sleep(POLL_INTERVAL)
