@@ -7,11 +7,11 @@ import os
 from pathlib import Path
 
 def check_save_status(config):
-    from file_utils import is_json_valid
+    from files import is_json_valid
     from supabase_client import loop_supabase_validation
     from ui import int_range_input
     from game_entry import take_entry_input
-    from constants import GAMES_FILE
+    from settings import GAMES_FILE
 
     if not is_json_valid(GAMES_FILE):
         print('You have no game entries')
@@ -47,7 +47,7 @@ def check_save_status(config):
             return
         
 def get_status(config, client, games, game_choice):
-    from file_utils import hash_save_folder, get_last_modified
+    from files import hash_save_folder, get_last_modified
     from common import get_platform
 
     platform = get_platform()

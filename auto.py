@@ -14,7 +14,7 @@ class GamesFileHandler(FileSystemEventHandler):
         self.reload_callback = reload_callback
 
     def on_modified(self, event):
-        from constants import GAMES_FILE
+        from settings import GAMES_FILE
         if event.src_path.endswith(GAMES_FILE):
             self.reload_callback()
 
@@ -49,8 +49,8 @@ def is_match(target_patterns, proc):
 
 def get_target_patterns():
     from common import get_platform
-    from file_utils import get_games_file
-    from constants import SKIP_GAMES
+    from files import get_games_file
+    from settings import SKIP_GAMES
 
     platform = get_platform()
     if platform == 'unsupported':
@@ -77,7 +77,7 @@ def snapshot_matches(target_patterns):
 
 async def on_process_start(state, pid, current):
     from config import load_cfg
-    from file_utils import get_games_file
+    from files import get_games_file
     from status import get_status
     from common import internet_check
 
@@ -124,7 +124,7 @@ async def on_process_start(state, pid, current):
 async def on_process_exit(info):
     from config import load_cfg
     from supabase_client import upload_save, download_save
-    from file_utils import get_games_file
+    from files import get_games_file
 
     # info -> {game: game, latest: latest}
     await asyncio.sleep(2)
@@ -148,7 +148,7 @@ async def on_process_exit(info):
         log(f'Save for {game} synced')
 
 async def watch_loop():
-    from constants import POLL_INTERVAL, LOG_FILE_NAME, LOG_FOLDER, MAX_LOG_BYTES, LOG_BACKUP_COUNT, CLEAR_TRASH
+    from settings import POLL_INTERVAL, LOG_FILE_NAME, LOG_FOLDER, MAX_LOG_BYTES, LOG_BACKUP_COUNT, CLEAR_TRASH
     
     # Logger setup
     if LOG_FOLDER:
@@ -177,7 +177,7 @@ async def watch_loop():
 
     # Clear trash if enabled
     if CLEAR_TRASH:
-        from file_utils import clear_trash
+        from files import clear_trash
         clear_trash(user_called=False)
         log("Cleared excess trash backups")
 

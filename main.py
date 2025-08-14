@@ -7,7 +7,7 @@ from status import check_save_status
 from config import edit_supabase_info
 from common import get_platform
 from ui import int_range_input
-from file_utils import clear_trash
+from files import clear_trash
 
 def main():
     # Rich traceback install

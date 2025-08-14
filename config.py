@@ -6,8 +6,8 @@ from common import log, is_auto_mode
 
 def load_cfg():
     from ui import get_supabase_info
-    from file_utils import is_json_valid
-    from constants import DEFAULT_CONFIG, CONFIG_FILE
+    from files import is_json_valid
+    from settings import DEFAULT_CONFIG, CONFIG_FILE
     
     valid = is_json_valid(CONFIG_FILE)
     regenerate = False
@@ -71,7 +71,7 @@ def load_cfg():
 
 def regenerate_cfg():
     from ui import get_supabase_info
-    from constants import DEFAULT_CONFIG, CONFIG_FILE
+    from settings import DEFAULT_CONFIG, CONFIG_FILE
     
     log('Config file regenerating', 'warning')
 
@@ -91,7 +91,7 @@ def regenerate_cfg():
     
 def edit_supabase_info(config, choice=None, user_called=True):
     from ui import get_supabase_info, int_range_input
-    from constants import CONFIG_FILE
+    from settings import CONFIG_FILE
 
     while True:
         with open(CONFIG_FILE, 'r') as f:

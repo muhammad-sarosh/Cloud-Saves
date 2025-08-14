@@ -6,8 +6,8 @@ import supabase
 
 def add_game_entry():
     from common import get_platform
-    from file_utils import get_games_file
-    from constants import GAMES_FILE
+    from files import get_games_file
+    from settings import GAMES_FILE
 
     games = get_games_file()
 
@@ -70,7 +70,7 @@ def add_game_entry():
 
 def remove_game_entry(config, games=None, entry_name_to_del=None):
     from supabase_client import loop_supabase_validation, remove_supabase_files
-    from constants import GAMES_FILE
+    from settings import GAMES_FILE
 
     if loop_supabase_validation(config=config) == -1:
         return
@@ -104,7 +104,7 @@ def remove_game_entry(config, games=None, entry_name_to_del=None):
     print(f'\n[green]{entry_name_to_del} has been removed from your games[/]')
 
 def edit_entry_process(games, entry_name_to_edit, system):
-    from constants import GAMES_FILE
+    from settings import GAMES_FILE
 
     new_process = Prompt.ask(f"Launch your game, open task manager/system monitor and enter the [underline{system}[/] process name for the game "\
         "(or press 'Enter' to make it empty)").strip()
@@ -140,7 +140,7 @@ def edit_game_entry(config):
             
 def edit_game_name(config, games, entry_name_to_edit):
     from supabase_client import loop_supabase_validation, remove_supabase_files, list_all_supabase_files
-    from constants import GAMES_FILE
+    from settings import GAMES_FILE
 
     if loop_supabase_validation(config=config) == -1:
         return
@@ -201,7 +201,7 @@ def edit_game_name(config, games, entry_name_to_edit):
 # To update game entry paths
 def write_new_path(games, entry_name_to_edit, system):
     from common import get_platform
-    from constants import GAMES_FILE
+    from settings import GAMES_FILE
 
     if get_platform() != system:
         print(f'WARNING: Since you are currently not on {system} the program will not check to see if the entered {system} path is valid')
@@ -219,9 +219,9 @@ def write_new_path(games, entry_name_to_edit, system):
 
 # To input game entry. Returns None if there are no entries
 def take_entry_input(keyword, extra_info=True):
-    from file_utils import is_json_valid
+    from files import is_json_valid
     from ui import int_range_input
-    from constants import GAMES_FILE
+    from settings import GAMES_FILE
 
     if not is_json_valid(GAMES_FILE):
         print('You have no game entries')
@@ -254,8 +254,8 @@ def get_key_str(key):
 
 # print_paths determines whether the games save paths are printed along with the names
 def list_games(extra_info=True):
-    from file_utils import is_json_valid
-    from constants import GAMES_FILE
+    from files import is_json_valid
+    from settings import GAMES_FILE
 
     if not is_json_valid(GAMES_FILE):
         print('You have no game entries\n')

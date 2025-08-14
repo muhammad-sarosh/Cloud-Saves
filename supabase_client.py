@@ -9,11 +9,11 @@ import supabase
 import time
 import json
 
-from file_utils import hash_save_folder, get_last_modified, move_files
+from files import hash_save_folder, get_last_modified, move_files
 from config import edit_supabase_info
 from common import get_platform, internet_check, log, is_auto_mode, send_notification
 from game_entry import take_entry_input
-from constants import CONFIG_FILE
+from settings import CONFIG_FILE
 
 # Returns True if everthing is valid. Returns False and updates info if anything was invalid
 # Returns -1 if unexpected error
@@ -165,7 +165,7 @@ def upload_file(config, client, entry, file_path, local_path, retries=3):
     return file_path, "WinError 10035: Failed after retries"
 
 def upload_save(config, games=None, entry=None, user_called=True, validate_supabase=True):
-    from constants import SKIP_EXTENSIONS
+    from settings import SKIP_EXTENSIONS
     
     if user_called:
         response = take_entry_input(keyword='to upload', extra_info=False)
@@ -198,7 +198,7 @@ def upload_save(config, games=None, entry=None, user_called=True, validate_supab
     
     # Initialising progress bar
     with Progress() as progress:
-        from constants import MAX_UPLOAD_THREADS
+        from settings import MAX_UPLOAD_THREADS
         task = progress.add_task("[cyan]Uploading files...", total=len(files_to_upload))
         # How many threads to create, tune as needed
         # Higher max_threads = faster uploads but higher chance for failiure
@@ -332,7 +332,7 @@ def download_save(config, games=None, entry=None, user_called=True, validate_sup
 
     log(f'Downloading files for {entry}')
     with Progress() as progress:
-        from constants import MAX_DOWNLOAD_THREADS
+        from settings import MAX_DOWNLOAD_THREADS
         task = progress.add_task("[cyan]Downloading files...", total=len(files_to_download))
         max_workers = min(MAX_DOWNLOAD_THREADS, len(files_to_download)) 
 
@@ -379,8 +379,8 @@ def sync_single_save(config, client, games, game_choice):
         return
 
 def sync_save(config):
-    from file_utils import is_json_valid
-    from constants import GAMES_FILE
+    from files import is_json_valid
+    from settings import GAMES_FILE
     from ui import int_range_input
 
     if not is_json_valid(GAMES_FILE):

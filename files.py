@@ -10,7 +10,7 @@ from ui import int_range_input
 from game_entry import take_entry_input
 
 def hash_save_folder(path:Path):
-    from constants import SKIP_EXTENSIONS
+    from settings import SKIP_EXTENSIONS
 
     # Intitialise md5 hash object
     hasher = hashlib.md5()
@@ -53,7 +53,7 @@ def move_files(source_path, backup_path):
             folder.rmdir()
 
 def get_last_modified(folder: Path):
-    from constants import SKIP_EXTENSIONS
+    from settings import SKIP_EXTENSIONS
 
     latest_time = 0
     for file in folder.rglob("*"):
@@ -73,7 +73,7 @@ def is_json_valid(file):
         return False
 
 def get_games_file():
-    from constants import GAMES_FILE
+    from settings import GAMES_FILE
 
     # Loading file if exists else create new
     if os.path.exists(GAMES_FILE):
@@ -89,7 +89,7 @@ def get_games_file():
     return games
 
 def clear_trash(user_called=True):
-    from constants import TRASH_FOLDER, MAX_BACKUPS, GAMES_FILE
+    from settings import TRASH_FOLDER, MAX_BACKUPS, GAMES_FILE
     
     # If called programmatically (from auto.py), clear all games
     if not user_called:
