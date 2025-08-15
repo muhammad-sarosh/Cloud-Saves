@@ -1,0 +1,17 @@
+# ~/.config/systemd/user/cloud-saves.service
+[Unit]
+Description=Cloud Saves auto.py
+
+[Service]
+Type=simple
+
+# Edit path and virtual environment name to match your personal configuration
+WorkingDirectory=full/path/to/Cloud-Saves
+Environment=ENV_NAME=linux_env
+ExecStart=/usr/bin/bash -lc 'source "full/path/to/Cloud-Saves/linux_env/bin/activate" && exec python "full/path/to/Cloud-Saves/auto.py"'
+
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
