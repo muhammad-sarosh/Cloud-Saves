@@ -76,27 +76,40 @@ def send_notification(title, message):
         except Exception as e:
             log(f"Failed to send Linux notification: {e}", 'error')
     elif platform_name == "windows":
-        # Use PowerShell toast notification
-        try:
-            # Escape double quotes in message parts
-            title_esc = title.replace('"', '\\"')
-            message_esc = message.replace('"', '\\"')
-            icon_uri = f"file:///{os.path.abspath(ICON_PATH)}" if ICON_PATH else ""
+        # Escape double quotes in message parts
+        title_esc = title.replace('"', '\\"')
+        message_esc = message.replace('"', '\\"')
+        icon_uri = f"file:///{os.path.abspath(ICON_PATH)}" if ICON_PATH else ""
 
-            ps_script = f'''
-            [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null;
-            $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastImageAndText02);
-            $template.SelectSingleNode("//text[@id=1]").InnerText = "{title_esc}";
-            $template.SelectSingleNode("//text[@id=2]").InnerText = "{message_esc}";
-            if ("{icon_uri}" -ne "") {{
-                $template.SelectSingleNode("//image").SetAttribute("src", "{icon_uri}");
-            }}
-            $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("{APP_NAME}");
-            $toast = [Windows.UI.Notifications.ToastNotification]::new($template);
-            $notifier.Show($toast);
-            '''
-            subprocess.run(["powershell", "-Command", ps_script], check=True)
-        except Exception as e:
-            log(f"Failed to send Windows notification: {e}", 'error')
+        ps_script = f'''
+        [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null;
+        $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastImageAndText02);
+        $template.SelectSingleNode("//text[@id=1]").InnerText = "{title_esc}";
+        $template.SelectSingleNode("//text[@id=2]").InnerText = "{message_esc}";
+        if ("{icon_uri}" -ne "") {{
+            $template.SelectSingleNode("//image").SetAttribute("src", "{icon_uri}");
+        }}
+        $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("{APP_NAME}");
+        $toast = [Windows.UI.Notifications.ToastNotification]::new($template);
+        $notifier.Show($toast);
+        '''
+
+        # Ensure no window flashes
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+        subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle", "Hidden",
+                "-ExecutionPolicy", "Bypass",
+                "-Command", ps_script
+            ],
+            check=True,
+            startupinfo=startupinfo,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
     else:
         log(f"Unsupported platform for notifications", 'error')

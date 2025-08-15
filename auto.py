@@ -106,29 +106,34 @@ def snapshot_matches(target_patterns):
             matches[pid] = game
     return matches
 
-async def on_process_start(state, pid, current):
-    game = current[pid]
+async def on_process_start(state, pid, current, running_games):
+    try:
+        game = current[pid]
 
-    send_notification(title=game, message='Cloud saves is watching')
-    log(f'Watching {game}')
+        latest = await get_latest(game=game)
+        if latest == -1:
+            running_games.discard(game)
+            return
 
-    latest = await get_latest(game=game)
-    if latest == -1:
-        return
+        if latest == 'cloud':
+            send_notification(title=game, message='Cloud save is ahead. Please close the game for the save syncing to begin')
+            log('Cloud save is ahead, waiting for game to close')
+        elif latest == 'local':
+            log('Local save is ahead, waiting for game to close')
+        elif latest == 'synced':
+            log(f'{game} save is already in sync')
+        else:
+            send_notification(title='Error', message=f'Unable to determine sync status for {game}')
+            log(f'Unable to determine sync status for {game}', 'error')
+            running_games.discard(game)
+            return
+        
+        state[pid] = {'game': current[pid], 'latest': latest}
+    except Exception as e:
+        log(f'Unexpected error in on_process_start: {e}', 'error')
+        if game:
+            running_games.discard(game)
 
-    if latest == 'cloud':
-        send_notification(title=game, message='Cloud save is ahead. Please close the game for the save syncing to begin')
-        log('Cloud save is ahead, waiting for game to close')
-    elif latest == 'local':
-        log('Local save is ahead, waiting for game to close')
-    elif latest == 'synced':
-        log(f'{game} save is already in sync')
-    else:
-        send_notification(title='Error', message=f'Unable to determine sync status for {game}')
-        log(f'Unable to determine sync status for {game}', 'error')
-        return
-    
-    state[pid] = {'game': current[pid], 'latest': latest}
 
 async def on_process_exit(info):
     from config import load_cfg
@@ -213,6 +218,7 @@ async def watch_loop():
     seen = {}  # {pid: game}
     state = {} # {pid: {game: game, latest: latest}}
     start_tasks = {} # {pid: asyncio task}
+    running_games = set() # Track games currently running
     syncing_games = set()  # Track games currently being synced
 
     # Watchdog setup
@@ -245,7 +251,8 @@ async def watch_loop():
                 ended_pids   = seen.keys() - current.keys()
 
                 for pid in started_pids:
-                    log(f'Process started: PID {pid} ({current[pid]})')
+                    game = current[pid]
+                    log(f'Process started: PID {pid} ({game})')
 
                     # Checking if on_process_start for this task is done if it was already running
                     task = start_tasks.pop(pid, None)
@@ -254,10 +261,17 @@ async def watch_loop():
                             await task
                         except Exception as e:
                             log(f'Error waiting for previous start task (PID {pid}): {e}', 'error')
-                            continue                    # If we're not already waiting for the game to close, then add it to the list
+                            continue
+
+                    # If we're not already waiting for the game to close, then add it to the list
                     # of games that we wanna wait for
                     if pid not in state.keys():
-                        start_tasks[pid] = asyncio.create_task(on_process_start(state=state, pid=pid, current=current))
+                        # Only send notification if game is not already running (for case with multiple pids of same process)
+                        if game not in running_games:
+                            send_notification(title=game, message='Cloud saves is watching')
+                            log(f'Watching {game}')
+                            running_games.add(game)
+                        start_tasks[pid] = asyncio.create_task(on_process_start(state=state, pid=pid, current=current, running_games=running_games))
 
                 for pid in ended_pids:
                     game = seen[pid]
@@ -289,6 +303,7 @@ async def watch_loop():
                                 await on_process_exit(info=info)
                             finally:
                                 syncing_games.discard(info['game'])
+                                running_games.discard(info['game'])
                         
                         asyncio.create_task(sync_wrapper(info=info, syncing_games=syncing_games))
 
