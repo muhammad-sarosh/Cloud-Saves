@@ -10,6 +10,7 @@ A cross-platform (Windows + Linux) command-line tool that syncs game save folder
 * **Cross-platform** - Works on both Windows and Linux
 * **Multi-threaded** - Fast parallel uploads/downloads
 * **Status checking** - See which saves are newer (local vs cloud)
+* **Notifications** - Visual and sound notifications (Linux) for sync events
 * **Logging** - Writes detailed logs for Auto Sync
 * **Auto-cleanup** - Manages old backups and log rotation
 
@@ -55,6 +56,7 @@ A cross-platform (Windows + Linux) command-line tool that syncs game save folder
 
   * **Windows:** PowerShell available by default (no extra install required)
   * **Linux:** `notify-send` from **libnotify** (e.g., `sudo apt install libnotify-bin` on Debian/Ubuntu, `sudo pacman -S libnotify` on Arch)
+  * **Linux (sound notifications):** Audio player like `paplay` (PulseAudio), `aplay` (ALSA), `play` (SoX), or `ffplay` (FFmpeg)
 
 The Python dependencies are pinned in `requirements.txt` and will be installed into a virtual environment during setup.
 
@@ -286,6 +288,8 @@ python auto.py
 ├─ ui.py                   # Rich prompts and input helpers
 ├─ requirements.txt        # Python dependencies
 ├─ Cloud_Saves.png         # Icon used by notifications (referenced in settings)
+├─ Sound/                  # Notification sound files
+│  └─ notification.ogg     # Default notification sound (user-provided)
 ├─ Autostart/
 │  ├─ README.md            # Autostart guide (Windows & Linux)
 │  ├─ Windows/             # Startup scripts
@@ -327,6 +331,8 @@ All tunables live in **`settings.py`**.
 * **Notifications:**
 
   * `SEND_NOTIFICATIONS` — enable/disable notifications in auto mode
+  * `SOUND_ON_NOTIFICATION` — enable/disable sound with notifications on Linux
+  * `NOTIFICATION_SOUND_PATH` — path to notification sound file (default: `Sound/notification.ogg`)
 
 Changes take effect next time you run the program(s).
 
@@ -349,6 +355,12 @@ Changes take effect next time you run the program(s).
 **No notifications on Linux:**
 
 * Install libnotify (`sudo apt install libnotify-bin` or `sudo pacman -S libnotify`). Ensure a notification daemon is running (e.g., on KDE/GNOME this is built‑in).
+
+**No notification sounds on Linux:**
+
+* Install an audio player: PulseAudio (`sudo apt install pulseaudio-utils`), ALSA (`sudo apt install alsa-utils`), SoX (`sudo apt install sox`), or FFmpeg (`sudo apt install ffmpeg`).
+* Ensure you have a sound file at `Sound/notification.ogg` (or update `NOTIFICATION_SOUND_PATH` in `settings.py`).
+* Check that `SOUND_ON_NOTIFICATION = True` in `settings.py`.
 
 **Auto sync didn’t trigger:**
 

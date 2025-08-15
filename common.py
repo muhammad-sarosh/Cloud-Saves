@@ -50,7 +50,7 @@ def log(message, level='info'):
             logger.warning(message)
 
 def send_notification(title, message):
-    from settings import APP_NAME, ICON_PATH, SEND_NOTIFICATIONS
+    from settings import APP_NAME, ICON_PATH, SEND_NOTIFICATIONS, SOUND_ON_NOTIFICATION, NOTIFICATION_SOUND_PATH
     from common import get_platform
 
     if not is_auto_mode() or not SEND_NOTIFICATIONS:
@@ -71,6 +71,37 @@ def send_notification(title, message):
 
         try:
             subprocess.run(cmd, check=True)
+            
+            # Play sound if enabled
+            if SOUND_ON_NOTIFICATION and NOTIFICATION_SOUND_PATH and os.path.exists(NOTIFICATION_SOUND_PATH):
+                try:
+                    # Try to play sound using various Linux audio players
+                    sound_players = ["paplay", "aplay", "play", "ffplay"]
+                    sound_played = False
+                    
+                    for player in sound_players:
+                        try:
+                            if player == "ffplay":
+                                # ffplay needs special flags to not show window and auto-exit
+                                subprocess.run([player, "-nodisp", "-autoexit", NOTIFICATION_SOUND_PATH], 
+                                             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            else:
+                                subprocess.run([player, NOTIFICATION_SOUND_PATH], 
+                                             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            sound_played = True
+                            break
+                        except FileNotFoundError:
+                            continue
+                        except Exception:
+                            continue
+                    
+                    if not sound_played:
+                        log("No suitable audio player found. Install pulseaudio-utils, alsa-utils, sox, or ffmpeg for notification sounds.", 'warning')
+                except Exception as e:
+                    log(f"Failed to play notification sound: {e}", 'warning')
+            elif SOUND_ON_NOTIFICATION and NOTIFICATION_SOUND_PATH and not os.path.exists(NOTIFICATION_SOUND_PATH):
+                log(f"Notification sound file not found: {NOTIFICATION_SOUND_PATH}", 'warning')
+                
         except FileNotFoundError:
             log("'notify-send' not found. Install 'libnotify-bin'", 'error')
         except Exception as e:

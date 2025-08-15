@@ -28,5 +28,7 @@ MAX_BACKUPS = 5 # Maximum number of save file backups to keep in the trash folde
 
 CLEAR_TRASH = True # Whether to clear trash on each run of auto.py if MAX_BACKUPS is exceeded
 SEND_NOTIFICATIONS = True # Whether auto.py sends notifications for important events
+SOUND_ON_NOTIFICATION = True # Whether to play sound with notifications on Linux
+NOTIFICATION_SOUND_PATH = 'Sound/notification.ogg' # Path to notification sound file
 
 
