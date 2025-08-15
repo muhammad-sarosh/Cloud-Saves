@@ -106,7 +106,7 @@ def remove_game_entry(config, games=None, entry_name_to_del=None):
 def edit_entry_process(games, entry_name_to_edit, system):
     from settings import GAMES_FILE
 
-    new_process = Prompt.ask(f"Launch your game, open task manager/system monitor and enter the [underline{system}[/] process name for the game "\
+    new_process = Prompt.ask(f"Launch your game, open task manager/system monitor and enter the [underline]{system}[/] process name for the game "\
         "(or press 'Enter' to make it empty)").strip()
     games[entry_name_to_edit][f'{system}_process'] = new_process
 
