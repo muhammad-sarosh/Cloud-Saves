@@ -4,8 +4,8 @@ A cross-platform (Windows + Linux) command-line tool that syncs game save folder
 
 ## Key Features
 
+* **Auto Sync** - Automatically detects running games and syncs your saves
 * **Smart sync** - Compares timestamps and file hashes to sync only when needed
-* **Auto Sync** - Automatically reloads your game entries if you make any changes to them
 * **Safe backups** - Creates timestamped backups before overwriting saves
 * **Cross-platform** - Works on both Windows and Linux
 * **Multi-threaded** - Fast parallel uploads/downloads
@@ -401,3 +401,4 @@ Yes, add extensions to `SKIP_EXTENSIONS` in `settings.py` (e.g., `[".tmp", ".log
 
 **Q: Can I run auto sync at startup?**
 Yes — see **[Autostart/README.md](Autostart/README.md)**. It contains platform‑specific scripts and instructions.
+
