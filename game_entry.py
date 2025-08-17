@@ -45,8 +45,8 @@ def add_game_entry():
                              "This is needed if you want to use auto.py to auto sync save files (y/n)")
     while True:
         if choice == 'y':
-            primary_process = Prompt.ask(f"Launch your game, open task manager/system monitor and enter the [underline{primary_system}[/] process name for the game").strip()
-            secondary_process = Prompt.ask(f"Launch your game, open task manager/system monitor and enter the [underline{secondary_system}[/] process name for the game "\
+            primary_process = Prompt.ask(f"Launch your game, open task manager/system monitor and enter the [underline]{primary_system}[/] process name for the game").strip()
+            secondary_process = Prompt.ask(f"Launch your game, open task manager/system monitor and enter the [underline]{secondary_system}[/] process name for the game "\
                     "(or press 'Enter' to skip)").strip()
             break
         elif choice == 'n':
