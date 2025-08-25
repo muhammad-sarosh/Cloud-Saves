@@ -6,6 +6,8 @@ import logging
 from logging.handlers import RotatingFileHandler
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+import time
+import json
 
 from common import log, send_notification
 
@@ -178,8 +180,9 @@ async def on_process_exit(info):
         log(f'Failed to sync save for {game}', 'error')
 
 async def watch_loop():
-    from settings import POLL_INTERVAL, LOG_FILE_NAME, LOG_FOLDER, MAX_LOG_BYTES, LOG_BACKUP_COUNT, CLEAR_TRASH
-    
+    from settings import POLL_INTERVAL, LOG_FILE_NAME, LOG_FOLDER, MAX_LOG_BYTES, LOG_BACKUP_COUNT, CLEAR_TRASH, RECORD_PLAYTIME, GAMES_FILE
+    from files import get_games_file
+
     # Logger setup
     if LOG_FOLDER:
         os.makedirs(LOG_FOLDER, exist_ok=True)
@@ -218,7 +221,8 @@ async def watch_loop():
     seen = {}  # {pid: game}
     state = {} # {pid: {game: game, latest: latest}}
     start_tasks = {} # {pid: asyncio task}
-    running_games = set() # Track games currently running
+    running_games = set() # Track games currently running (for auto syncing)
+    running_games_playtime = {} # Track playtime of running games 
     syncing_games = set()  # Track games currently being synced
 
     # Watchdog setup
@@ -272,6 +276,11 @@ async def watch_loop():
                             log(f'Watching {game}')
                             running_games.add(game)
                         start_tasks[pid] = asyncio.create_task(on_process_start(state=state, pid=pid, current=current, running_games=running_games))
+                    
+                    # Do the same thing for playtime
+                    if RECORD_PLAYTIME:
+                        if game not in running_games_playtime:
+                            running_games_playtime[game] = time.time()
 
                 for pid in ended_pids:
                     game = seen[pid]
@@ -306,7 +315,26 @@ async def watch_loop():
                                 running_games.discard(info['game'])
                         
                         asyncio.create_task(sync_wrapper(info=info, syncing_games=syncing_games))
+                    
+                    # Recording the playtime
+                    if RECORD_PLAYTIME:
+                        if game in running_games_playtime:
+                            games_file = get_games_file()
 
+                            start_time = running_games_playtime.pop(game)
+                            playtime = time.time() - start_time
+                            playtime_hours = round(playtime / 3600, 1)
+                            send_notification(title=game, message=f'You played for {playtime_hours} hours')
+                            log(f'Played {game} for {playtime_hours}')
+                            old_playtime = games_file[game].get('playtime', 0)              
+                            old_playtime = old_playtime * 3600
+
+                            new_playtime = round((old_playtime + playtime) / 3600, 1)
+                            log(f'Updated playtime for {game} is {new_playtime}')
+
+                            games_file[game]['playtime'] = new_playtime
+                            with open(GAMES_FILE, 'w') as f:
+                                json.dump(games_file, f, indent=4)
                 seen = current
                 await asyncio.sleep(POLL_INTERVAL)
             else:

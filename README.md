@@ -13,6 +13,7 @@ A cross-platform (Windows + Linux) command-line tool that syncs game save folder
 * **Notifications** - Visual and sound notifications (Linux) for sync events
 * **Logging** - Writes detailed logs for Auto Sync
 * **Auto-cleanup** - Manages old backups and log rotation
+* **Playtime Tracking** - Records your game playtime and displays it in hours
 
 ## Quick Start
 
@@ -39,6 +40,7 @@ A cross-platform (Windows + Linux) command-line tool that syncs game save folder
    * [Add a game entry](#add-a-game-entry)
    * [Upload / Download / Sync](#upload--download--sync)
    * [Check save status](#check-save-status)
+   * [View Game Playtime](#view-game-playtime)
 6. [Auto Sync](#auto-sync)
 7. [Project Layout](#project-layout)
 8. [Settings Reference](#settings-reference)
@@ -245,6 +247,10 @@ You’ll see a progress bar for multi‑file operations. If any file errors occu
 
 Dates are printed in a friendly format (e.g., `August 06 2025 at 06:35 PM`).
 
+### View game playtime
+
+`List games` shows your configured games along with their paths and process names. If playtime tracking is enabled (`RECORD_PLAYTIME = True` in settings), it also displays the total playtime recorded for each game when using auto sync. Playtime is displayed in hours
+
 ---
 
 ## Auto Sync
@@ -318,6 +324,7 @@ All tunables live in **`settings.py`**.
 * `APP_NAME` — label shown in notifications
 * `ICON_PATH` — icon used by notifications (defaults to `Cloud_Saves.png` in repo)
 * `POLL_INTERVAL` — seconds between process scans in auto mode
+* `RECORD_PLAYTIME` — enable/disable playtime tracking for games (records in hours)
 * **Logging:**
 
   * `LOG_FILE_NAME` — log file name (default `cloud_saves.log`)
@@ -401,4 +408,3 @@ Yes, add extensions to `SKIP_EXTENSIONS` in `settings.py` (e.g., `[".tmp", ".log
 
 **Q: Can I run auto sync at startup?**
 Yes — see **[Autostart/README.md](Autostart/README.md)**. It contains platform‑specific scripts and instructions.
-

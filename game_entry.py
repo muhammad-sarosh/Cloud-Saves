@@ -249,8 +249,13 @@ def get_key_str(key):
         return 'Windows Path'
     elif key == 'linux_path':
         return 'Linux Path'
+    elif key == 'playtime':
+        return 'Playtime'
     else:
         return key.capitalize()
+
+def get_val_str(key, val):
+    return val if key != 'playtime' else val + ' hours'
 
 # print_paths determines whether the games save paths are printed along with the names
 def list_games(extra_info=True):
@@ -268,8 +273,8 @@ def list_games(extra_info=True):
         print(f"[bold]{count}: {game}[/]")
         if extra_info:
             for key, val in data.items():
+                val = str(val)
                 if val.strip():
-                    # print(f"[underline]{key.capitalize()} Path:[/] [purple]{val}[/]")
-                    print(f"[underline]{get_key_str(key=key)}:[/] [purple]{val}[/]")
-        if extra_info:
+                    print(f"[underline]{get_key_str(key=key)}:[/] [purple]{get_val_str(key=key, val=val)}[/]")
             print()
+            
